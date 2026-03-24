@@ -33,9 +33,9 @@ const config = {
     dialect: 'mysql' as const,
     logging: false,
     pool: {
-      max: 5,
-      min: 0,
-      acquire: 30000,
+      max: 20,
+      min: 5,
+      acquire: 60000,
       idle: 10000,
     },
   },
@@ -53,6 +53,11 @@ const sequelize = new Sequelize(
     dialect: dbConfig.dialect,
     logging: dbConfig.logging,
     pool: (dbConfig as typeof config.production).pool,
+    define: {
+      timestamps: true,
+      underscored: true,
+      freezeTableName: true,
+    },
   }
 );
 
