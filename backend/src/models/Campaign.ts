@@ -40,7 +40,7 @@ class Campaign extends Model<CampaignAttributes, CampaignCreationAttributes> imp
   public updated_at!: Date;
 
   // Associations
-  public ad_account?: AdAccount;
+  public adAccount?: AdAccount;
 }
 
 Campaign.init(

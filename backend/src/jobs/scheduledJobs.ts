@@ -1,6 +1,6 @@
 import { CronJob } from 'cron';
 import { AdAccount, Organization } from '../models';
-import { scheduledSyncQueue, optimizationQueue } from './workers';
+import { scheduledSyncQueue, optimizationQueue } from '../queues/workers';
 import { Op } from 'sequelize';
 
 export class ScheduledJobs {

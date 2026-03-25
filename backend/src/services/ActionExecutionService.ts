@@ -9,6 +9,7 @@ import {
   Campaign,
 } from '../models';
 import sequelize from '../config/database';
+import { AppError } from '../middleware/errorHandler';
 
 export interface ExecuteActionInput {
   organizationId: string;
@@ -28,7 +29,7 @@ export class ActionExecutionService {
     try {
       const adAccount = await AdAccount.findByPk(input.adAccountId, { transaction });
       if (!adAccount) {
-        throw new Error('Ad account not found');
+        throw new AppError('Ad account not found', 404);
       }
 
       const action = await ExecutedAction.create(
@@ -49,38 +50,49 @@ export class ActionExecutionService {
       );
 
       // Get the entity and store previous state
-      let previousState: any = {};
+      let previousState: Record<string, unknown> = {};
       let metaEntityId = '';
+      let entity: Ad | AdSet | Campaign | null = null;
 
       switch (input.entityType) {
-        case 'ad':
+        case 'ad': {
           const ad = await Ad.findByPk(input.entityId, { transaction });
+          entity = ad;
           if (ad) {
             previousState = { status: ad.status, name: ad.name };
             metaEntityId = ad.meta_ad_id;
           }
           break;
-        case 'ad_set':
+        }
+        case 'ad_set': {
           const adSet = await AdSet.findByPk(input.entityId, { transaction });
+          entity = adSet;
           if (adSet) {
             previousState = { status: adSet.status, name: adSet.name, daily_budget: adSet.daily_budget };
             metaEntityId = adSet.meta_adset_id;
           }
           break;
-        case 'campaign':
+        }
+        case 'campaign': {
           const campaign = await Campaign.findByPk(input.entityId, { transaction });
+          entity = campaign;
           if (campaign) {
             previousState = { status: campaign.status, name: campaign.name, daily_budget: campaign.daily_budget };
             metaEntityId = campaign.meta_campaign_id;
           }
           break;
+        }
+      }
+
+      if (!entity || !metaEntityId) {
+        throw new AppError('Target entity not found', 404);
       }
 
       await action.update({ meta_entity_id: metaEntityId, previous_state: JSON.stringify(previousState) }, { transaction });
 
       // Execute the action via Meta API
-      let result: any;
-      let newState: any = {};
+      let result: Record<string, unknown> | undefined;
+      let newState: Record<string, unknown> = {};
 
       switch (input.actionType) {
         case 'pause_ad':
@@ -102,14 +114,14 @@ export class ActionExecutionService {
         case 'decrease_budget':
           const percentage = input.actionType === 'increase_budget' ? 20 : -20;
           if (input.entityType === 'ad_set') {
-            const adSet = await AdSet.findByPk(input.entityId, { transaction });
+            const adSet = entity as AdSet;
             if (adSet && adSet.daily_budget) {
               const newBudget = Math.round(adSet.daily_budget * (1 + percentage / 100) * 100);
               result = await MetaApiService.updateAdSetBudget(adAccount, metaEntityId, newBudget);
               newState = { daily_budget: newBudget / 100 };
             }
           } else if (input.entityType === 'campaign') {
-            const campaign = await Campaign.findByPk(input.entityId, { transaction });
+            const campaign = entity as Campaign;
             if (campaign && campaign.daily_budget) {
               const newBudget = Math.round(campaign.daily_budget * (1 + percentage / 100) * 100);
               result = await MetaApiService.updateCampaignBudget(adAccount, metaEntityId, newBudget);
@@ -119,7 +131,7 @@ export class ActionExecutionService {
           break;
 
         case 'duplicate_ad':
-          const ad = await Ad.findByPk(input.entityId, { transaction });
+          const ad = entity as Ad;
           if (ad) {
             result = await MetaApiService.duplicateAd(adAccount, metaEntityId, `${ad.name} (Copy)`);
             newState = { duplicated_from: metaEntityId };
@@ -127,7 +139,7 @@ export class ActionExecutionService {
           break;
 
         default:
-          throw new Error(`Unknown action type: ${input.actionType}`);
+          throw new AppError(`Unknown action type: ${input.actionType}`, 400);
       }
 
       // Update action with result

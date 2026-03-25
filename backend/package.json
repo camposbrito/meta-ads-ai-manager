@@ -8,13 +8,14 @@
     "start": "node dist/index.js",
     "worker": "ts-node src/worker.ts",
     "worker:start": "node dist/worker.js",
-    "migrate": "sequelize-cli db:migrate",
+    "setup": "ts-node scripts/setup.ts",
+    "migrate": "ts-node scripts/run-migrations.ts",
     "migrate:undo": "sequelize-cli db:migrate:undo",
     "migrate:seed": "sequelize-cli db:seed:all",
     "lint": "eslint src --ext .ts",
     "lint:fix": "eslint src --ext .ts --fix",
     "format": "prettier --write \"src/**/*.ts\"",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node --test tests"
   },
   "keywords": [
     "meta-ads",

@@ -43,6 +43,14 @@ const config = {
 
 const dbConfig = config[environment as keyof typeof config];
 
+if (!dbConfig.database) {
+  throw new Error(`Database name is required for environment ${environment}`);
+}
+
+if (!dbConfig.username) {
+  throw new Error(`Database username is required for environment ${environment}`);
+}
+
 const sequelize = new Sequelize(
   dbConfig.database,
   dbConfig.username,

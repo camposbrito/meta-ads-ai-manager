@@ -7,19 +7,19 @@ const router = Router();
 router.use(authenticate);
 
 // Rules
-router.get('/rules', optimizationController.getRules);
-router.post('/rules', optimizationController.createRule);
-router.put('/rules/:id', optimizationController.updateRule);
-router.delete('/rules/:id', optimizationController.deleteRule);
-router.patch('/rules/:id/toggle', optimizationController.toggleRule);
+router.get('/rules', optimizationController.getRules.bind(optimizationController));
+router.post('/rules', optimizationController.createRule.bind(optimizationController));
+router.put('/rules/:id', optimizationController.updateRule.bind(optimizationController));
+router.delete('/rules/:id', optimizationController.deleteRule.bind(optimizationController));
+router.patch('/rules/:id/toggle', optimizationController.toggleRule.bind(optimizationController));
 
 // Suggestions
-router.get('/suggestions', optimizationController.getSuggestions);
-router.get('/suggestions/:id', optimizationController.getSuggestion);
-router.post('/suggestions/:id/accept', optimizationController.acceptSuggestion);
-router.post('/suggestions/:id/reject', optimizationController.rejectSuggestion);
+router.get('/suggestions', optimizationController.getSuggestions.bind(optimizationController));
+router.get('/suggestions/:id', optimizationController.getSuggestion.bind(optimizationController));
+router.post('/suggestions/:id/accept', optimizationController.acceptSuggestion.bind(optimizationController));
+router.post('/suggestions/:id/reject', optimizationController.rejectSuggestion.bind(optimizationController));
 
 // Run optimization
-router.post('/run', optimizationController.runOptimization);
+router.post('/run', optimizationController.runOptimization.bind(optimizationController));
 
 export default router;

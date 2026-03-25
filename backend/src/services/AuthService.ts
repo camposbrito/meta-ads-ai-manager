@@ -3,6 +3,7 @@ import { User, Organization, RefreshToken } from '../models';
 import { hashPassword, comparePassword } from './PasswordService';
 import { generateAccessToken, generateRefreshToken, verifyToken, JWTPayload } from './JWTService';
 import sequelize from '../config/database';
+import { AppError } from '../middleware/errorHandler';
 
 export interface AuthTokens {
   accessToken: string;
@@ -34,7 +35,7 @@ export class AuthService {
       // Check if user already exists
       const existingUser = await User.findOne({ where: { email: input.email } });
       if (existingUser) {
-        throw new Error('Email already registered');
+        throw new AppError('Email already registered', 409);
       }
 
       // Create organization
@@ -46,6 +47,7 @@ export class AuthService {
           plan: 'free',
           max_ad_accounts: 1,
           max_daily_syncs: 1,
+          is_active: true,
         },
         { transaction }
       );
@@ -84,12 +86,12 @@ export class AuthService {
     });
 
     if (!user) {
-      throw new Error('Invalid credentials');
+      throw new AppError('Invalid credentials', 401);
     }
 
     const isValidPassword = await comparePassword(input.password, user.password_hash);
     if (!isValidPassword) {
-      throw new Error('Invalid credentials');
+      throw new AppError('Invalid credentials', 401);
     }
 
     // Update last login
@@ -119,10 +121,13 @@ export class AuthService {
       });
 
       if (!storedToken || storedToken.expires_at < new Date()) {
-        throw new Error('Invalid or expired refresh token');
+        throw new AppError('Invalid or expired refresh token', 401);
       }
 
       const user = storedToken.user;
+      if (!user) {
+        throw new AppError('Invalid refresh token', 401);
+      }
 
       // Generate new tokens
       const newAccessToken = generateAccessToken({
@@ -152,7 +157,11 @@ export class AuthService {
 
       return { accessToken: newAccessToken, refreshToken: newRefreshToken };
     } catch (error) {
-      throw new Error('Invalid refresh token');
+      if (error instanceof AppError) {
+        throw error;
+      }
+
+      throw new AppError('Invalid refresh token', 401);
     }
   }
 

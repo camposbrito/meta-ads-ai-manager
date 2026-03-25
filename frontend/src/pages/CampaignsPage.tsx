@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Campaign as CampaignIcon } from 'lucide-react';
+import { BarChart3 } from 'lucide-react';
 import { dashboardAPI } from '../services/api';
 import { Card } from '../components/Card';
 import type { Campaign } from '../types';
@@ -70,7 +70,7 @@ export function CampaignsPage() {
       {campaigns.length === 0 ? (
         <Card>
           <div className="text-center py-12">
-            <CampaignIcon className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+            <BarChart3 className="h-12 w-12 text-gray-400 mx-auto mb-4" />
             <h3 className="text-lg font-medium text-gray-900">Nenhuma campanha</h3>
             <p className="text-gray-500 mt-1">
               Conecte uma conta do Meta Ads para visualizar suas campanhas.

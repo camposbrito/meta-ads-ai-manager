@@ -2,259 +2,245 @@ import { Response } from 'express';
 import { Op } from 'sequelize';
 import { AuthRequest } from '../middleware/auth';
 import {
+  Ad,
   AdAccount,
   Campaign,
-  AdSet,
-  Ad,
+  ExecutedAction,
   Insight,
   OptimizationSuggestion,
-  ExecutedAction,
 } from '../models';
+import { calculatePerformanceMetrics } from '../utils/metrics';
+import { parsePositiveInt, requireAuth } from '../utils/request';
 
 export class DashboardController {
   async getOverview(req: AuthRequest, res: Response): Promise<void> {
-    try {
-      if (!req.user) {
-        res.status(401).json({ error: 'Authentication required' });
-        return;
-      }
+    const user = requireAuth(req);
+    const daysNum = parsePositiveInt(req.query.days, 'days', 30, { min: 1, max: 365 });
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - daysNum);
 
-      const { days = 30 } = req.query;
-      const daysNum = parseInt(days as string, 10) || 30;
-      const startDate = new Date();
-      startDate.setDate(startDate.getDate() - daysNum);
+    const adAccounts = await AdAccount.findAll({
+      where: { organization_id: user.organizationId, is_active: true },
+      attributes: ['id'],
+    });
 
-      const adAccounts = await AdAccount.findAll({
-        where: { organization_id: req.user.organizationId, is_active: true },
-      });
+    const adAccountIds = adAccounts.map((account) => account.id);
+    const pendingSuggestions = await OptimizationSuggestion.count({
+      where: {
+        organization_id: user.organizationId,
+        status: 'pending',
+      },
+    });
+    const recentActions = await ExecutedAction.findAll({
+      where: { organization_id: user.organizationId },
+      order: [['created_at', 'DESC']],
+      limit: 5,
+    });
 
-      const adAccountIds = adAccounts.map((acc) => acc.id);
-
-      // Get aggregated insights
-      const insights = await Insight.findAll({
-        where: {
-          ad_account_id: { [Op.in]: adAccountIds },
-          date: { [Op.gte]: startDate.toISOString().split('T')[0] },
-        },
-      });
-
-      // Calculate totals
-      const totals = insights.reduce(
-        (acc, insight) => ({
-          spend: acc.spend + insight.spend,
-          impressions: acc.impressions + insight.impressions,
-          clicks: acc.clicks + insight.clicks,
-          conversions: acc.conversions + insight.conversions,
-          conversion_value: acc.conversion_value + insight.conversion_value,
-        }),
-        { spend: 0, impressions: 0, clicks: 0, conversions: 0, conversion_value: 0 }
-      );
-
-      // Get pending suggestions count
-      const pendingSuggestions = await OptimizationSuggestion.count({
-        where: {
-          organization_id: req.user.organizationId,
-          status: 'pending',
-        },
-      });
-
-      // Get recent actions
-      const recentActions = await ExecutedAction.findAll({
-        where: { organization_id: req.user.organizationId },
-        order: [['created_at', 'DESC']],
-        limit: 5,
-      });
-
+    if (adAccountIds.length === 0) {
       res.json({
         overview: {
-          total_spend: totals.spend,
-          total_impressions: totals.impressions,
-          total_clicks: totals.clicks,
-          total_conversions: totals.conversions,
-          total_revenue: totals.conversion_value,
-          ctr: totals.impressions > 0 ? (totals.clicks / totals.impressions) * 100 : 0,
-          cpc: totals.clicks > 0 ? totals.spend / totals.clicks : 0,
-          cpa: totals.conversions > 0 ? totals.spend / totals.conversions : 0,
-          roas: totals.spend > 0 ? totals.conversion_value / totals.spend : 0,
+          total_spend: 0,
+          total_impressions: 0,
+          total_clicks: 0,
+          total_conversions: 0,
+          total_revenue: 0,
+          ctr: 0,
+          cpc: 0,
+          cpa: 0,
+          roas: 0,
         },
-        connected_accounts: adAccounts.length,
+        connected_accounts: 0,
         pending_suggestions: pendingSuggestions,
-        recent_actions: recentActions.map((action) => ({
-          id: action.id,
-          action_type: action.action_type,
-          entity_type: action.entity_type,
-          status: action.status,
-          created_at: action.created_at,
-        })),
+        recent_actions: recentActions,
       });
-    } catch (error) {
-      res.status(500).json({ error: 'Internal server error' });
+      return;
     }
+
+    const totalsRow = (await Insight.findOne({
+      where: {
+        ad_account_id: { [Op.in]: adAccountIds },
+        date: { [Op.gte]: startDate.toISOString().split('T')[0] },
+      },
+      attributes: [
+        [Insight.sequelize!.fn('COALESCE', Insight.sequelize!.fn('SUM', Insight.sequelize!.col('spend')), 0), 'spend'],
+        [Insight.sequelize!.fn('COALESCE', Insight.sequelize!.fn('SUM', Insight.sequelize!.col('impressions')), 0), 'impressions'],
+        [Insight.sequelize!.fn('COALESCE', Insight.sequelize!.fn('SUM', Insight.sequelize!.col('clicks')), 0), 'clicks'],
+        [Insight.sequelize!.fn('COALESCE', Insight.sequelize!.fn('SUM', Insight.sequelize!.col('conversions')), 0), 'conversions'],
+        [Insight.sequelize!.fn('COALESCE', Insight.sequelize!.fn('SUM', Insight.sequelize!.col('conversion_value')), 0), 'conversion_value'],
+        [Insight.sequelize!.fn('COALESCE', Insight.sequelize!.fn('SUM', Insight.sequelize!.col('reach')), 0), 'reach'],
+      ],
+      raw: true,
+    })) as Record<string, string> | null;
+
+    const totals = calculatePerformanceMetrics({
+      spend: Number(totalsRow?.spend || 0),
+      impressions: Number(totalsRow?.impressions || 0),
+      clicks: Number(totalsRow?.clicks || 0),
+      conversions: Number(totalsRow?.conversions || 0),
+      conversionValue: Number(totalsRow?.conversion_value || 0),
+      reach: Number(totalsRow?.reach || 0),
+    });
+
+    res.json({
+      overview: {
+        total_spend: totals.spend,
+        total_impressions: totals.impressions,
+        total_clicks: totals.clicks,
+        total_conversions: totals.conversions,
+        total_revenue: totals.conversionValue,
+        ctr: totals.ctr * 100,
+        cpc: totals.cpc,
+        cpa: totals.cpa,
+        roas: totals.roas,
+      },
+      connected_accounts: adAccounts.length,
+      pending_suggestions: pendingSuggestions,
+      recent_actions: recentActions.map((action) => ({
+        id: action.id,
+        action_type: action.action_type,
+        entity_type: action.entity_type,
+        status: action.status,
+        created_at: action.created_at,
+      })),
+    });
   }
 
   async getPerformanceChart(req: AuthRequest, res: Response): Promise<void> {
-    try {
-      if (!req.user) {
-        res.status(401).json({ error: 'Authentication required' });
-        return;
+    const user = requireAuth(req);
+    const daysNum = parsePositiveInt(req.query.days, 'days', 30, { min: 1, max: 365 });
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - daysNum);
+
+    const adAccounts = await AdAccount.findAll({
+      where: { organization_id: user.organizationId, is_active: true },
+      attributes: ['id'],
+    });
+
+    const insights = await Insight.findAll({
+      where: {
+        ad_account_id: { [Op.in]: adAccounts.map((account) => account.id) },
+        date: { [Op.gte]: startDate.toISOString().split('T')[0] },
+      },
+      order: [['date', 'ASC']],
+    });
+
+    const grouped: Record<string, any> = {};
+
+    for (const insight of insights) {
+      const key = insight.date;
+
+      if (!grouped[key]) {
+        grouped[key] = {
+          date: key,
+          spend: 0,
+          impressions: 0,
+          clicks: 0,
+          conversions: 0,
+          conversion_value: 0,
+        };
       }
 
-      const { days = 30, groupBy = 'date' } = req.query;
-      const daysNum = parseInt(days as string, 10) || 30;
-      const startDate = new Date();
-      startDate.setDate(startDate.getDate() - daysNum);
+      grouped[key].spend += Number(insight.spend);
+      grouped[key].impressions += Number(insight.impressions);
+      grouped[key].clicks += Number(insight.clicks);
+      grouped[key].conversions += Number(insight.conversions);
+      grouped[key].conversion_value += Number(insight.conversion_value);
+    }
 
-      const adAccounts = await AdAccount.findAll({
-        where: { organization_id: req.user.organizationId, is_active: true },
-      });
-
-      const adAccountIds = adAccounts.map((acc) => acc.id);
-
-      const insights = await Insight.findAll({
-        where: {
-          ad_account_id: { [Op.in]: adAccountIds },
-          date: { [Op.gte]: startDate.toISOString().split('T')[0] },
-        },
-        order: [['date', 'ASC']],
-      });
-
-      // Group by date
-      const grouped: Record<string, any> = {};
-      for (const insight of insights) {
-        const key = insight.date;
-        if (!grouped[key]) {
-          grouped[key] = {
-            date: key,
-            spend: 0,
-            impressions: 0,
-            clicks: 0,
-            conversions: 0,
-            conversion_value: 0,
-          };
-        }
-        grouped[key].spend += insight.spend;
-        grouped[key].impressions += insight.impressions;
-        grouped[key].clicks += insight.clicks;
-        grouped[key].conversions += insight.conversions;
-        grouped[key].conversion_value += insight.conversion_value;
-      }
-
-      const chartData = Object.values(grouped).map((item: any) => ({
+    res.json({
+      data: Object.values(grouped).map((item: any) => ({
         ...item,
         ctr: item.impressions > 0 ? ((item.clicks / item.impressions) * 100).toFixed(2) : 0,
         cpc: item.clicks > 0 ? (item.spend / item.clicks).toFixed(2) : 0,
         cpa: item.conversions > 0 ? (item.spend / item.conversions).toFixed(2) : 0,
         roas: item.spend > 0 ? (item.conversion_value / item.spend).toFixed(2) : 0,
-      }));
-
-      res.json({ data: chartData });
-    } catch (error) {
-      res.status(500).json({ error: 'Internal server error' });
-    }
+      })),
+    });
   }
 
   async getCampaigns(req: AuthRequest, res: Response): Promise<void> {
-    try {
-      if (!req.user) {
-        res.status(401).json({ error: 'Authentication required' });
-        return;
-      }
+    const user = requireAuth(req);
+    const adAccounts = await AdAccount.findAll({
+      where: { organization_id: user.organizationId, is_active: true },
+      attributes: ['id'],
+    });
 
-      const adAccounts = await AdAccount.findAll({
-        where: { organization_id: req.user.organizationId, is_active: true },
-      });
+    const campaigns = await Campaign.findAll({
+      where: { ad_account_id: { [Op.in]: adAccounts.map((account) => account.id) }, is_active: true },
+      include: [
+        {
+          model: AdAccount,
+          as: 'adAccount',
+          attributes: ['id', 'name'],
+        },
+      ],
+      order: [['created_at', 'DESC']],
+    });
 
-      const adAccountIds = adAccounts.map((acc) => acc.id);
-
-      const campaigns = await Campaign.findAll({
-        where: { ad_account_id: { [Op.in]: adAccountIds }, is_active: true },
-        include: [
-          {
-            model: AdAccount,
-            as: 'ad_account',
-            attributes: ['id', 'name'],
-          },
-        ],
-        order: [['created_at', 'DESC']],
-      });
-
-      res.json({
-        campaigns: campaigns.map((c) => ({
-          id: c.id,
-          name: c.name,
-          status: c.status,
-          objective: c.objective,
-          daily_budget: c.daily_budget,
-          ad_account_name: c.ad_account?.name,
-        })),
-      });
-    } catch (error) {
-      res.status(500).json({ error: 'Internal server error' });
-    }
+    res.json({
+      campaigns: campaigns.map((campaign) => ({
+        id: campaign.id,
+        name: campaign.name,
+        status: campaign.status,
+        objective: campaign.objective,
+        daily_budget: campaign.daily_budget,
+        ad_account_name: campaign.adAccount?.name,
+      })),
+    });
   }
 
   async getTopAds(req: AuthRequest, res: Response): Promise<void> {
-    try {
-      if (!req.user) {
-        res.status(401).json({ error: 'Authentication required' });
-        return;
-      }
+    const user = requireAuth(req);
+    const daysNum = parsePositiveInt(req.query.days, 'days', 7, { min: 1, max: 365 });
+    const limitNum = parsePositiveInt(req.query.limit, 'limit', 10, { min: 1, max: 100 });
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - daysNum);
 
-      const { days = 7, limit = 10 } = req.query;
-      const daysNum = parseInt(days as string, 10) || 7;
-      const limitNum = parseInt(limit as string, 10) || 10;
-      const startDate = new Date();
-      startDate.setDate(startDate.getDate() - daysNum);
+    const adAccounts = await AdAccount.findAll({
+      where: { organization_id: user.organizationId, is_active: true },
+      attributes: ['id'],
+    });
 
-      const adAccounts = await AdAccount.findAll({
-        where: { organization_id: req.user.organizationId, is_active: true },
-      });
-
-      const adAccountIds = adAccounts.map((acc) => acc.id);
-
-      // Get top ads by conversions
-      const insights = await Insight.findAll({
-        where: {
-          ad_account_id: { [Op.in]: adAccountIds },
-          ad_id: { [Op.ne]: null },
-          date: { [Op.gte]: startDate.toISOString().split('T')[0] },
+    const insights = await Insight.findAll({
+      where: {
+        ad_account_id: { [Op.in]: adAccounts.map((account) => account.id) },
+        ad_id: { [Op.ne]: null },
+        date: { [Op.gte]: startDate.toISOString().split('T')[0] },
+      },
+      attributes: [
+        'ad_id',
+        [Insight.sequelize!.fn('SUM', Insight.sequelize!.col('spend')), 'spend'],
+        [Insight.sequelize!.fn('SUM', Insight.sequelize!.col('clicks')), 'clicks'],
+        [Insight.sequelize!.fn('SUM', Insight.sequelize!.col('conversions')), 'conversions'],
+        [Insight.sequelize!.fn('SUM', Insight.sequelize!.col('conversion_value')), 'conversion_value'],
+        [Insight.sequelize!.fn('SUM', Insight.sequelize!.col('impressions')), 'impressions'],
+      ],
+      group: ['ad_id', 'ad.id'],
+      order: [[Insight.sequelize!.fn('SUM', Insight.sequelize!.col('conversions')), 'DESC']],
+      limit: limitNum,
+      include: [
+        {
+          model: Ad,
+          as: 'ad',
+          attributes: ['id', 'name', 'headline', 'status'],
         },
-        attributes: [
-          'ad_id',
-          [Insight.sequelize!.fn('SUM', Insight.sequelize!.col('spend')), 'spend'],
-          [Insight.sequelize!.fn('SUM', Insight.sequelize!.col('clicks')), 'clicks'],
-          [Insight.sequelize!.fn('SUM', Insight.sequelize!.col('conversions')), 'conversions'],
-          [Insight.sequelize!.fn('SUM', Insight.sequelize!.col('conversion_value')), 'conversion_value'],
-          [Insight.sequelize!.fn('SUM', Insight.sequelize!.col('impressions')), 'impressions'],
-        ],
-        group: ['ad_id'],
-        order: [[Insight.sequelize!.fn('SUM', Insight.sequelize!.col('conversions')), 'DESC']],
-        limit: limitNum,
-        include: [
-          {
-            model: Ad,
-            as: 'ad',
-            attributes: ['id', 'name', 'headline', 'status'],
-          },
-        ],
-      });
+      ],
+    });
 
-      res.json({
-        ads: insights.map((i: any) => ({
-          id: i.ad_id,
-          name: i.ad?.name,
-          headline: i.ad?.headline,
-          status: i.ad?.status,
-          spend: parseFloat(i.dataValues.spend),
-          clicks: parseInt(i.dataValues.clicks),
-          conversions: parseInt(i.dataValues.conversions),
-          revenue: parseFloat(i.dataValues.conversion_value),
-          impressions: parseInt(i.dataValues.impressions),
-        })),
-      });
-    } catch (error) {
-      res.status(500).json({ error: 'Internal server error' });
-    }
+    res.json({
+      ads: insights.map((insight: any) => ({
+        id: insight.ad_id,
+        name: insight.ad?.name,
+        headline: insight.ad?.headline,
+        status: insight.ad?.status,
+        spend: parseFloat(insight.dataValues.spend),
+        clicks: parseInt(insight.dataValues.clicks, 10),
+        conversions: parseInt(insight.dataValues.conversions, 10),
+        revenue: parseFloat(insight.dataValues.conversion_value),
+        impressions: parseInt(insight.dataValues.impressions, 10),
+      })),
+    });
   }
 }
 

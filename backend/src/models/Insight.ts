@@ -55,7 +55,7 @@ class Insight extends Model<InsightAttributes, InsightCreationAttributes> implem
   // Associations
   public ad_account?: AdAccount;
   public campaign?: Campaign;
-  public ad_set?: AdSet;
+  public adSet?: AdSet;
   public ad?: Ad;
 }
 

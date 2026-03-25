@@ -13,10 +13,16 @@ const redisConnection = new Redis({
   maxRetriesPerRequest: null,
 });
 
+const queueConnection = {
+  host: process.env.REDIS_HOST || 'localhost',
+  port: parseInt(process.env.REDIS_PORT || '6379', 10),
+  password: process.env.REDIS_PASSWORD,
+};
+
 // Queue definitions
-export const syncQueue = new Queue('sync-queue', { connection: redisConnection });
-export const optimizationQueue = new Queue('optimization-queue', { connection: redisConnection });
-export const scheduledSyncQueue = new Queue('scheduled-sync-queue', { connection: redisConnection });
+export const syncQueue = new Queue('sync-queue', { connection: queueConnection });
+export const optimizationQueue = new Queue('optimization-queue', { connection: queueConnection });
+export const scheduledSyncQueue = new Queue('scheduled-sync-queue', { connection: queueConnection });
 
 // Sync job processor
 const syncWorker = new Worker(
@@ -27,7 +33,7 @@ const syncWorker = new Worker(
     await SyncService.syncAdAccount(adAccountId, jobType);
     console.log(`Sync job ${job.id} completed`);
   },
-  { connection: redisConnection, concurrency: 5 }
+  { connection: queueConnection, concurrency: 5 }
 );
 
 // Optimization job processor
@@ -40,7 +46,7 @@ const optimizationWorker = new Worker(
     console.log(`Optimization job ${job.id} completed. Generated ${result.suggestionsGenerated} suggestions`);
     return result;
   },
-  { connection: redisConnection, concurrency: 3 }
+  { connection: queueConnection, concurrency: 3 }
 );
 
 // Scheduled sync processor
@@ -54,7 +60,7 @@ const scheduledSyncWorker = new Worker(
     // After sync, run optimization
     await optimizationQueue.add('optimize', { adAccountId });
   },
-  { connection: redisConnection, concurrency: 5 }
+  { connection: queueConnection, concurrency: 5 }
 );
 
 // Graceful shutdown

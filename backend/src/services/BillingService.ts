@@ -1,5 +1,5 @@
-import { v4 as uuidv4 } from 'uuid';
-import { Organization } from '../models';
+import { AdAccount, Organization, User } from '../models';
+import { AppError } from '../middleware/errorHandler';
 
 export type PlanType = 'free' | 'pro' | 'agency';
 
@@ -54,7 +54,7 @@ export class BillingService {
     const organization = await Organization.findByPk(organizationId);
     
     if (!organization) {
-      throw new Error('Organization not found');
+      throw new AppError('Organization not found', 404);
     }
 
     const limits = PLAN_LIMITS[newPlan];
@@ -74,17 +74,29 @@ export class BillingService {
     const organization = await Organization.findByPk(organizationId);
     
     if (!organization) {
-      throw new Error('Organization not found');
+      throw new AppError('Organization not found', 404);
     }
 
     const limits = PLAN_LIMITS[newPlan];
 
     // Check if downgrade would violate limits
-    const currentAdAccountCount = 0; // Would need to query actual count
+    const currentAdAccountCount = await AdAccount.count({
+      where: { organization_id: organizationId, is_active: true },
+    });
+    const currentUserCount = await User.count({
+      where: { organization_id: organizationId, is_active: true },
+    });
     
     if (currentAdAccountCount > limits.max_ad_accounts) {
-      throw new Error(
+      throw new AppError(
         `Cannot downgrade: organization has more ad accounts (${currentAdAccountCount}) than the new plan allows (${limits.max_ad_accounts})`
+      , 409);
+    }
+
+    if (currentUserCount > limits.max_users) {
+      throw new AppError(
+        `Cannot downgrade: organization has more active users (${currentUserCount}) than the new plan allows (${limits.max_users})`,
+        409
       );
     }
 
@@ -103,7 +115,7 @@ export class BillingService {
     const organization = await Organization.findByPk(organizationId);
     
     if (!organization) {
-      throw new Error('Organization not found');
+      throw new AppError('Organization not found', 404);
     }
 
     // Keep access until the end of the billing period
