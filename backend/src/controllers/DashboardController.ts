@@ -161,6 +161,10 @@ export class DashboardController {
 
   async getCampaigns(req: AuthRequest, res: Response): Promise<void> {
     const user = requireAuth(req);
+    const daysNum = parsePositiveInt(req.query.days, 'days', 30, { min: 1, max: 365 });
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - daysNum);
+
     const adAccounts = await AdAccount.findAll({
       where: { organization_id: user.organizationId, is_active: true },
       attributes: ['id'],
@@ -178,15 +182,81 @@ export class DashboardController {
       order: [['created_at', 'DESC']],
     });
 
+    const campaignIds = campaigns.map((campaign) => campaign.id);
+    const metricsByCampaign = new Map<string, ReturnType<typeof calculatePerformanceMetrics>>();
+
+    if (campaignIds.length > 0) {
+      const insightRows = (await Insight.findAll({
+        where: {
+          campaign_id: { [Op.in]: campaignIds },
+          ad_set_id: null,
+          ad_id: null,
+          date: { [Op.gte]: startDate.toISOString().split('T')[0] },
+        },
+        attributes: [
+          'campaign_id',
+          [Insight.sequelize!.fn('COALESCE', Insight.sequelize!.fn('SUM', Insight.sequelize!.col('spend')), 0), 'spend'],
+          [Insight.sequelize!.fn('COALESCE', Insight.sequelize!.fn('SUM', Insight.sequelize!.col('impressions')), 0), 'impressions'],
+          [Insight.sequelize!.fn('COALESCE', Insight.sequelize!.fn('SUM', Insight.sequelize!.col('clicks')), 0), 'clicks'],
+          [Insight.sequelize!.fn('COALESCE', Insight.sequelize!.fn('SUM', Insight.sequelize!.col('conversions')), 0), 'conversions'],
+          [Insight.sequelize!.fn('COALESCE', Insight.sequelize!.fn('SUM', Insight.sequelize!.col('conversion_value')), 0), 'conversion_value'],
+          [Insight.sequelize!.fn('COALESCE', Insight.sequelize!.fn('SUM', Insight.sequelize!.col('reach')), 0), 'reach'],
+        ],
+        group: ['campaign_id'],
+        raw: true,
+      })) as unknown as Array<Record<string, string | null>>;
+
+      for (const row of insightRows) {
+        const campaignId = row.campaign_id;
+        if (!campaignId) {
+          continue;
+        }
+
+        metricsByCampaign.set(
+          campaignId,
+          calculatePerformanceMetrics({
+            spend: Number(row.spend || 0),
+            impressions: Number(row.impressions || 0),
+            clicks: Number(row.clicks || 0),
+            conversions: Number(row.conversions || 0),
+            conversionValue: Number(row.conversion_value || 0),
+            reach: Number(row.reach || 0),
+          })
+        );
+      }
+    }
+
+    const emptyPerformance = calculatePerformanceMetrics({
+      spend: 0,
+      impressions: 0,
+      clicks: 0,
+      conversions: 0,
+      conversionValue: 0,
+      reach: 0,
+    });
+
     res.json({
-      campaigns: campaigns.map((campaign) => ({
-        id: campaign.id,
-        name: campaign.name,
-        status: campaign.status,
-        objective: campaign.objective,
-        daily_budget: campaign.daily_budget != null ? Number(campaign.daily_budget) : null,
-        ad_account_name: campaign.adAccount?.name,
-      })),
+      campaigns: campaigns.map((campaign) => {
+        const metrics = metricsByCampaign.get(campaign.id) || emptyPerformance;
+
+        return {
+          id: campaign.id,
+          name: campaign.name,
+          status: campaign.status,
+          objective: campaign.objective,
+          daily_budget: campaign.daily_budget != null ? Number(campaign.daily_budget) : null,
+          ad_account_name: campaign.adAccount?.name,
+          spend: metrics.spend,
+          impressions: metrics.impressions,
+          clicks: metrics.clicks,
+          conversions: metrics.conversions,
+          revenue: metrics.conversionValue,
+          ctr: metrics.ctr * 100,
+          cpc: metrics.cpc,
+          cpa: metrics.cpa,
+          roas: metrics.roas,
+        };
+      }),
     });
   }
 

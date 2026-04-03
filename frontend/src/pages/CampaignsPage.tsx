@@ -41,17 +41,33 @@ export function CampaignsPage() {
     }
   };
 
-  const formatDailyBudget = (dailyBudget: Campaign['daily_budget'] | string | null | undefined) => {
-    if (dailyBudget === null || dailyBudget === undefined || dailyBudget === '') {
+  const formatCurrency = (value: number | string | null | undefined) => {
+    if (value === null || value === undefined || value === '') {
       return '-';
     }
 
-    const parsed = typeof dailyBudget === 'number' ? dailyBudget : Number.parseFloat(dailyBudget);
+    const parsed = typeof value === 'number' ? value : Number.parseFloat(value);
     if (!Number.isFinite(parsed)) {
       return '-';
     }
 
     return `R$ ${parsed.toFixed(2)}`;
+  };
+
+  const formatInteger = (value: number | null | undefined) => {
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+      return '-';
+    }
+
+    return new Intl.NumberFormat('pt-BR').format(value);
+  };
+
+  const formatPercentage = (value: number | null | undefined) => {
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+      return '-';
+    }
+
+    return `${value.toFixed(2)}%`;
   };
 
   if (loading) {
@@ -109,6 +125,27 @@ export function CampaignsPage() {
                     Orçamento Diário
                   </th>
                   <th className="text-left py-3 px-4 text-sm font-medium text-gray-600">
+                    Gasto (30d)
+                  </th>
+                  <th className="text-left py-3 px-4 text-sm font-medium text-gray-600">
+                    Impressões
+                  </th>
+                  <th className="text-left py-3 px-4 text-sm font-medium text-gray-600">
+                    Cliques
+                  </th>
+                  <th className="text-left py-3 px-4 text-sm font-medium text-gray-600">
+                    CTR
+                  </th>
+                  <th className="text-left py-3 px-4 text-sm font-medium text-gray-600">
+                    CPC
+                  </th>
+                  <th className="text-left py-3 px-4 text-sm font-medium text-gray-600">
+                    Conversões
+                  </th>
+                  <th className="text-left py-3 px-4 text-sm font-medium text-gray-600">
+                    ROAS
+                  </th>
+                  <th className="text-left py-3 px-4 text-sm font-medium text-gray-600">
                     Conta
                   </th>
                 </tr>
@@ -132,7 +169,30 @@ export function CampaignsPage() {
                       {campaign.objective || '-'}
                     </td>
                     <td className="py-3 px-4 text-sm text-gray-600">
-                      {formatDailyBudget(campaign.daily_budget)}
+                      {formatCurrency(campaign.daily_budget)}
+                    </td>
+                    <td className="py-3 px-4 text-sm text-gray-600">
+                      {formatCurrency(campaign.spend)}
+                    </td>
+                    <td className="py-3 px-4 text-sm text-gray-600">
+                      {formatInteger(campaign.impressions)}
+                    </td>
+                    <td className="py-3 px-4 text-sm text-gray-600">
+                      {formatInteger(campaign.clicks)}
+                    </td>
+                    <td className="py-3 px-4 text-sm text-gray-600">
+                      {formatPercentage(campaign.ctr)}
+                    </td>
+                    <td className="py-3 px-4 text-sm text-gray-600">
+                      {formatCurrency(campaign.cpc)}
+                    </td>
+                    <td className="py-3 px-4 text-sm text-gray-600">
+                      {formatInteger(campaign.conversions)}
+                    </td>
+                    <td className="py-3 px-4 text-sm text-gray-600">
+                      {typeof campaign.roas === 'number' && Number.isFinite(campaign.roas)
+                        ? campaign.roas.toFixed(2)
+                        : '-'}
                     </td>
                     <td className="py-3 px-4 text-sm text-gray-600">
                       {campaign.ad_account_name || '-'}

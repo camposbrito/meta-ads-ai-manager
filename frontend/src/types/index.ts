@@ -39,6 +39,15 @@ export interface Campaign {
   objective?: string | null;
   daily_budget?: number | null;
   ad_account_name?: string;
+  spend?: number;
+  impressions?: number;
+  clicks?: number;
+  conversions?: number;
+  revenue?: number;
+  ctr?: number;
+  cpc?: number;
+  cpa?: number;
+  roas?: number;
 }
 
 export interface Ad {
