@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
-import MetaApiService, { MetaAd, MetaAdSet, MetaCampaign, MetaInsight } from './MetaApiService';
+import MetaApiService, { MetaAd, MetaAdSet, MetaCampaign, MetaInsight, MetaApiError } from './MetaApiService';
 import { Ad, AdAccount, AdSet, Campaign, Insight, Organization, SyncJob } from '../models';
 import { AppError } from '../middleware/errorHandler';
 import billingService, { PlanType } from './BillingService';
@@ -120,6 +120,17 @@ export class SyncService {
         records_synced: recordsSynced,
       });
     } catch (error) {
+      if (error instanceof MetaApiError && error.metaCode === 190) {
+        await AdAccount.update(
+          {
+            is_active: false,
+          },
+          {
+            where: { id: adAccountId },
+          }
+        );
+      }
+
       await syncJob.update({
         status: 'failed',
         completed_at: new Date(),
