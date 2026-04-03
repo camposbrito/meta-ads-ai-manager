@@ -272,7 +272,6 @@ export class MetaApiService {
             'date,impressions,reach,clicks,ctr,cpc,cpm,spend,conversions,conversion_value,frequency',
           ...(dateRange
             ? {
-                date_preset: 'custom',
                 time_range: JSON.stringify(dateRange),
               }
             : {}),
