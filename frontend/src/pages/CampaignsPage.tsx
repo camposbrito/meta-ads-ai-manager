@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { Fragment, useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { BarChart3, ChevronDown, ChevronRight } from 'lucide-react';
 import { dashboardAPI } from '../services/api';
@@ -237,8 +237,8 @@ export function CampaignsPage() {
         </thead>
         <tbody>
           {campaignList.map((campaign) => (
-            <>
-              <tr key={campaign.id} className="border-b border-gray-100 hover:bg-gray-50">
+            <Fragment key={campaign.id}>
+              <tr className="border-b border-gray-100 hover:bg-gray-50">
                 <td className="py-3 px-4">
                   <p className="font-medium text-gray-900">{campaign.name}</p>
                 </td>
@@ -280,7 +280,7 @@ export function CampaignsPage() {
                 </td>
               </tr>
               {renderAdsDetails(campaign)}
-            </>
+            </Fragment>
           ))}
         </tbody>
       </table>
