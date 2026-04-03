@@ -120,7 +120,12 @@ export class SyncService {
         records_synced: recordsSynced,
       });
     } catch (error) {
-      if (error instanceof MetaApiError && error.metaCode === 190) {
+      const isMetaTokenExpiredError =
+        error instanceof MetaApiError &&
+        (Number(error.metaCode) === 190 ||
+          /error validating access token|session has expired/i.test(error.message));
+
+      if (isMetaTokenExpiredError) {
         await AdAccount.update(
           {
             is_active: false,
