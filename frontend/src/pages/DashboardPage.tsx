@@ -10,13 +10,29 @@ import {
   ResponsiveContainer,
   Legend,
 } from 'recharts';
-import { DollarSign, Eye, MousePointer, Target, TrendingUp, Users } from 'lucide-react';
+import {
+  AlertTriangle,
+  CheckCircle2,
+  DollarSign,
+  Eye,
+  Loader2,
+  MousePointer,
+  Target,
+  TrendingUp,
+  Users,
+} from 'lucide-react';
 import { dashboardAPI, adAccountAPI } from '../services/api';
 import { useI18n } from '../contexts/I18nContext';
 import { Card } from '../components/Card';
 import { MetricCard } from '../components/MetricCard';
 import { Button } from '../components/Button';
-import type { Insight, AdAccount, MetaAvailableAdAccount } from '../types';
+import type {
+  Insight,
+  AdAccount,
+  AdAccountSyncStatus,
+  MetaAvailableAdAccount,
+  SyncJob,
+} from '../types';
 
 interface Overview {
   total_spend: number;
@@ -51,6 +67,11 @@ interface DashboardMeta {
   last_synced_at?: string | null;
 }
 
+interface SyncFeedback {
+  type: 'info' | 'success' | 'error';
+  message: string;
+}
+
 const META_OAUTH_STATE_KEY = 'meta_oauth_state';
 const META_OAUTH_TOKEN_KEY = 'meta_oauth_access_token';
 const META_OAUTH_RETURN_PATH_KEY = 'meta_oauth_return_path';
@@ -68,8 +89,12 @@ export function DashboardPage() {
   const [adAccounts, setAdAccounts] = useState<AdAccount[]>([]);
   const [pendingSuggestions, setPendingSuggestions] = useState<number>(0);
   const [selectedDays, setSelectedDays] = useState(30);
-  const [syncingAccountId, setSyncingAccountId] = useState<string | null>(null);
+  const [syncingAccounts, setSyncingAccounts] = useState<Record<string, boolean>>({});
   const [syncingAllAccounts, setSyncingAllAccounts] = useState(false);
+  const [syncStatusByAccount, setSyncStatusByAccount] = useState<Record<string, AdAccountSyncStatus>>({});
+  const [loadingSyncStatusByAccount, setLoadingSyncStatusByAccount] = useState<Record<string, boolean>>({});
+  const [expandedJobsByAccount, setExpandedJobsByAccount] = useState<Record<string, boolean>>({});
+  const [syncFeedbackByAccount, setSyncFeedbackByAccount] = useState<Record<string, SyncFeedback | null>>({});
 
   const [showConnectForm, setShowConnectForm] = useState(false);
   const [metaAccessToken, setMetaAccessToken] = useState('');
@@ -89,6 +114,51 @@ export function DashboardPage() {
   const clearConnectAlerts = () => {
     setConnectError(null);
     setConnectMessage(null);
+  };
+
+  const wait = useCallback(
+    (ms: number) =>
+      new Promise<void>((resolve) => {
+        window.setTimeout(resolve, ms);
+      }),
+    []
+  );
+
+  const loadAccountSyncStatus = useCallback(async (accountId: string) => {
+    setLoadingSyncStatusByAccount((prev) => ({ ...prev, [accountId]: true }));
+    try {
+      const response = await adAccountAPI.getSyncStatus(accountId);
+      setSyncStatusByAccount((prev) => ({
+        ...prev,
+        [accountId]: response.data,
+      }));
+      return response.data;
+    } catch (error) {
+      console.error(`Error loading sync status for account ${accountId}:`, error);
+      return null;
+    } finally {
+      setLoadingSyncStatusByAccount((prev) => ({ ...prev, [accountId]: false }));
+    }
+  }, []);
+
+  const loadAllSyncStatus = useCallback(
+    async (accounts: AdAccount[]) => {
+      if (accounts.length === 0) {
+        setSyncStatusByAccount({});
+        return;
+      }
+
+      await Promise.all(accounts.map((account) => loadAccountSyncStatus(account.id)));
+    },
+    [loadAccountSyncStatus]
+  );
+
+  const getLatestJob = (status: AdAccountSyncStatus | undefined): SyncJob | null => {
+    if (!status || !status.recent_jobs || status.recent_jobs.length === 0) {
+      return null;
+    }
+
+    return status.recent_jobs[0];
   };
 
   const loadDashboardData = useCallback(async () => {
@@ -118,12 +188,13 @@ export function DashboardPage() {
       setPerformanceMeta(performancePayload.meta || null);
       setPerformanceData(performancePayload.data);
       setAdAccounts(accountsRes.data.accounts);
+      await loadAllSyncStatus(accountsRes.data.accounts);
     } catch (error) {
       console.error('Error loading dashboard:', error);
     } finally {
       setLoading(false);
     }
-  }, [selectedDays]);
+  }, [loadAllSyncStatus, selectedDays]);
 
   const loadMetaAccounts = useCallback(
     async (tokenOverride?: string) => {
@@ -181,6 +252,27 @@ export function DashboardPage() {
       navigate('/', { replace: true });
     }
   }, [loadMetaAccounts, navigate]);
+
+  useEffect(() => {
+    const hasActiveJob =
+      Object.values(syncingAccounts).some(Boolean) ||
+      Object.values(syncStatusByAccount).some((status) => {
+        const latestJob = status.recent_jobs?.[0];
+        return latestJob?.status === 'pending' || latestJob?.status === 'running';
+      });
+
+    if (!hasActiveJob || adAccounts.length === 0) {
+      return;
+    }
+
+    const interval = window.setInterval(() => {
+      void loadAllSyncStatus(adAccounts);
+    }, 5000);
+
+    return () => {
+      window.clearInterval(interval);
+    };
+  }, [adAccounts, loadAllSyncStatus, syncStatusByAccount, syncingAccounts]);
 
   const handleStartMetaOAuth = () => {
     clearConnectAlerts();
@@ -249,15 +341,93 @@ export function DashboardPage() {
     }
   };
 
+  const monitorSyncJob = useCallback(
+    async (accountId: string, jobId: string): Promise<void> => {
+      const maxAttempts = 40;
+
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        const statusData = await loadAccountSyncStatus(accountId);
+        const trackedJob = statusData?.recent_jobs?.find((job) => job.id === jobId);
+
+        if (!trackedJob) {
+          await wait(2500);
+          continue;
+        }
+
+        if (trackedJob.status === 'completed') {
+          setSyncFeedbackByAccount((prev) => ({
+            ...prev,
+            [accountId]: {
+              type: 'success',
+              message: `Sincronização concluída. ${trackedJob.records_synced} registros atualizados.`,
+            },
+          }));
+          await loadDashboardData();
+          return;
+        }
+
+        if (trackedJob.status === 'failed') {
+          setSyncFeedbackByAccount((prev) => ({
+            ...prev,
+            [accountId]: {
+              type: 'error',
+              message:
+                trackedJob.error_message ||
+                'A sincronização falhou. Verifique o histórico de jobs abaixo.',
+            },
+          }));
+          return;
+        }
+
+        await wait(2500);
+      }
+
+      setSyncFeedbackByAccount((prev) => ({
+        ...prev,
+        [accountId]: {
+          type: 'info',
+          message:
+            'A sincronização ainda está em andamento. Atualize o status desta conta em alguns segundos.',
+        },
+      }));
+    },
+    [loadAccountSyncStatus, loadDashboardData, wait]
+  );
+
   const handleSync = async (id: string) => {
-    setSyncingAccountId(id);
+    setSyncingAccounts((prev) => ({ ...prev, [id]: true }));
+    setSyncFeedbackByAccount((prev) => ({
+      ...prev,
+      [id]: {
+        type: 'info',
+        message: 'Sincronização iniciada. Aguardando processamento...',
+      },
+    }));
+
     try {
-      await adAccountAPI.sync(id);
-      await loadDashboardData();
+      const response = await adAccountAPI.sync(id);
+      const jobId = response.data.job?.id;
+
+      if (!jobId) {
+        throw new Error('Não foi possível identificar o job de sincronização.');
+      }
+
+      await monitorSyncJob(id, jobId);
     } catch (error) {
+      const errorMessage =
+        (error as { response?: { data?: { error?: string } } }).response?.data?.error ||
+        (error instanceof Error ? error.message : 'Não foi possível iniciar a sincronização.');
+
+      setSyncFeedbackByAccount((prev) => ({
+        ...prev,
+        [id]: {
+          type: 'error',
+          message: errorMessage,
+        },
+      }));
       console.error('Error syncing:', error);
     } finally {
-      setSyncingAccountId(null);
+      setSyncingAccounts((prev) => ({ ...prev, [id]: false }));
     }
   };
 
@@ -268,14 +438,39 @@ export function DashboardPage() {
 
     setSyncingAllAccounts(true);
     try {
-      for (const account of adAccounts) {
-        try {
-          await adAccountAPI.sync(account.id);
-        } catch (error) {
-          console.error(`Error syncing account ${account.id}:`, error);
-        }
-      }
-      await loadDashboardData();
+      await Promise.all(
+        adAccounts.map(async (account) => {
+          setSyncingAccounts((prev) => ({ ...prev, [account.id]: true }));
+          setSyncFeedbackByAccount((prev) => ({
+            ...prev,
+            [account.id]: {
+              type: 'info',
+              message: 'Sincronização iniciada em lote.',
+            },
+          }));
+
+          try {
+            await adAccountAPI.sync(account.id);
+          } catch (error) {
+            const errorMessage =
+              (error as { response?: { data?: { error?: string } } }).response?.data?.error ||
+              'Não foi possível iniciar a sincronização.';
+            setSyncFeedbackByAccount((prev) => ({
+              ...prev,
+              [account.id]: {
+                type: 'error',
+                message: errorMessage,
+              },
+            }));
+            console.error(`Error syncing account ${account.id}:`, error);
+          } finally {
+            setSyncingAccounts((prev) => ({ ...prev, [account.id]: false }));
+          }
+        })
+      );
+
+      await wait(1800);
+      await loadAllSyncStatus(adAccounts);
     } finally {
       setSyncingAllAccounts(false);
     }
@@ -283,6 +478,66 @@ export function DashboardPage() {
 
   const handleCampaignDrillDown = (metric: 'spend' | 'impressions' | 'clicks' | 'conversions') => {
     navigate(`/campaigns?sort=${metric}&order=desc&days=${selectedDays}`);
+  };
+
+  const getJobStatusBadgeClass = (status: SyncJob['status']) => {
+    switch (status) {
+      case 'completed':
+        return 'bg-green-100 text-green-700';
+      case 'failed':
+        return 'bg-red-100 text-red-700';
+      case 'running':
+        return 'bg-blue-100 text-blue-700';
+      case 'pending':
+      default:
+        return 'bg-yellow-100 text-yellow-700';
+    }
+  };
+
+  const getJobStatusLabel = (status: SyncJob['status']) => {
+    switch (status) {
+      case 'completed':
+        return 'Concluído';
+      case 'failed':
+        return 'Falhou';
+      case 'running':
+        return 'Em execução';
+      case 'pending':
+      default:
+        return 'Pendente';
+    }
+  };
+
+  const getJobTypeLabel = (jobType: SyncJob['job_type']) => {
+    switch (jobType) {
+      case 'full_sync':
+        return 'Completa';
+      case 'insights_sync':
+        return 'Insights';
+      case 'incremental_sync':
+      default:
+        return 'Incremental';
+    }
+  };
+
+  const getFeedbackClass = (type: SyncFeedback['type']) => {
+    if (type === 'success') {
+      return 'border-green-200 bg-green-50 text-green-700';
+    }
+
+    if (type === 'error') {
+      return 'border-red-200 bg-red-50 text-red-700';
+    }
+
+    return 'border-blue-200 bg-blue-50 text-blue-700';
+  };
+
+  const formatDateTime = (value?: string | null) => {
+    if (!value) {
+      return '-';
+    }
+
+    return new Date(value).toLocaleString();
   };
 
   if (loading) {
@@ -603,29 +858,145 @@ export function DashboardPage() {
           <div className="text-center py-8 text-gray-500">Nenhuma conta conectada ainda</div>
         ) : (
           <div className="space-y-4">
-            {adAccounts.map((account) => (
-              <div
-                key={account.id}
-                className="flex items-center justify-between p-4 bg-gray-50 rounded-lg"
-              >
-                <div>
-                  <p className="font-medium text-gray-900">{account.name}</p>
-                  <p className="text-sm text-gray-500">ID: {account.meta_account_id}</p>
-                  <p className="text-xs text-gray-400">
-                    Ultima sincronizacao:{' '}
-                    {account.last_synced_at ? new Date(account.last_synced_at).toLocaleString() : 'Nunca'}
-                  </p>
+            {adAccounts.map((account) => {
+              const accountSyncStatus = syncStatusByAccount[account.id];
+              const latestJob = getLatestJob(accountSyncStatus);
+              const isSyncing = Boolean(syncingAccounts[account.id]);
+              const isStatusLoading = Boolean(loadingSyncStatusByAccount[account.id]);
+              const feedback = syncFeedbackByAccount[account.id];
+              const isExpanded = Boolean(expandedJobsByAccount[account.id]);
+
+              return (
+                <div key={account.id} className="rounded-lg border border-gray-200 bg-gray-50 p-4">
+                  <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                    <div className="space-y-2">
+                      <p className="font-medium text-gray-900">{account.name}</p>
+                      <p className="text-sm text-gray-500">ID: {account.meta_account_id}</p>
+                      <p className="text-xs text-gray-400">
+                        Última sincronização:{' '}
+                        {account.last_synced_at
+                          ? new Date(account.last_synced_at).toLocaleString()
+                          : 'Nunca'}
+                      </p>
+
+                      {latestJob ? (
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span
+                            className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ${getJobStatusBadgeClass(latestJob.status)}`}
+                          >
+                            {latestJob.status === 'completed' && <CheckCircle2 className="mr-1 h-3.5 w-3.5" />}
+                            {latestJob.status === 'failed' && <AlertTriangle className="mr-1 h-3.5 w-3.5" />}
+                            {(latestJob.status === 'running' || latestJob.status === 'pending') && (
+                              <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                            )}
+                            {getJobStatusLabel(latestJob.status)}
+                          </span>
+                          <span className="text-xs text-gray-500">
+                            Job {getJobTypeLabel(latestJob.job_type)} em {formatDateTime(latestJob.created_at)}
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="text-xs text-gray-500">
+                          Ainda não há histórico de sincronização desta conta.
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => void loadAccountSyncStatus(account.id)}
+                        isLoading={isStatusLoading}
+                      >
+                        Atualizar status
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => void handleSync(account.id)}
+                        isLoading={isSyncing}
+                      >
+                        Sincronizar
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() =>
+                          setExpandedJobsByAccount((prev) => ({
+                            ...prev,
+                            [account.id]: !isExpanded,
+                          }))
+                        }
+                      >
+                        {isExpanded ? 'Ocultar jobs' : 'Ver jobs'}
+                      </Button>
+                    </div>
+                  </div>
+
+                  {feedback && (
+                    <div className={`mt-3 rounded-lg border px-3 py-2 text-sm ${getFeedbackClass(feedback.type)}`}>
+                      {feedback.message}
+                    </div>
+                  )}
+
+                  {latestJob?.status === 'failed' && latestJob.error_message && (
+                    <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                      <p className="font-medium">Erro do último job:</p>
+                      <p className="mt-1 break-all">{latestJob.error_message}</p>
+                    </div>
+                  )}
+
+                  {isExpanded && (
+                    <div className="mt-4 overflow-x-auto rounded-lg border border-gray-200 bg-white">
+                      <table className="min-w-full">
+                        <thead>
+                          <tr className="border-b border-gray-200">
+                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-600">Criado em</th>
+                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-600">Tipo</th>
+                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-600">Status</th>
+                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-600">Registros</th>
+                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-600">Concluído em</th>
+                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-600">Erro</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(accountSyncStatus?.recent_jobs || []).map((job) => (
+                            <tr key={job.id} className="border-b border-gray-100">
+                              <td className="px-3 py-2 text-xs text-gray-600">{formatDateTime(job.created_at)}</td>
+                              <td className="px-3 py-2 text-xs text-gray-600">{getJobTypeLabel(job.job_type)}</td>
+                              <td className="px-3 py-2 text-xs text-gray-600">
+                                <span
+                                  className={`inline-flex rounded-full px-2 py-0.5 font-medium ${getJobStatusBadgeClass(job.status)}`}
+                                >
+                                  {getJobStatusLabel(job.status)}
+                                </span>
+                              </td>
+                              <td className="px-3 py-2 text-xs text-gray-600">
+                                {Number(job.records_synced || 0)}
+                              </td>
+                              <td className="px-3 py-2 text-xs text-gray-600">
+                                {formatDateTime(job.completed_at)}
+                              </td>
+                              <td className="px-3 py-2 text-xs text-red-600">
+                                {job.error_message || '-'}
+                              </td>
+                            </tr>
+                          ))}
+                          {(!accountSyncStatus?.recent_jobs || accountSyncStatus.recent_jobs.length === 0) && (
+                            <tr>
+                              <td colSpan={6} className="px-3 py-4 text-center text-xs text-gray-500">
+                                Sem jobs de sincronização para esta conta.
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
                 </div>
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  onClick={() => void handleSync(account.id)}
-                  isLoading={syncingAccountId === account.id}
-                >
-                  Sincronizar
-                </Button>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </Card>

@@ -2,6 +2,7 @@ import axios from 'axios';
 import type {
   Ad,
   AdAccount,
+  AdAccountSyncStatus,
   AuthTokens,
   BillingSubscription,
   BillingSupportOptions,
@@ -15,6 +16,7 @@ import type {
   Plan,
   RuleAction,
   RuleCondition,
+  SyncJob,
   TeamMember,
   User,
 } from '../types';
@@ -118,8 +120,9 @@ export const adAccountAPI = {
     api.post<{ accounts: MetaAvailableAdAccount[] }>('/ad-accounts/meta/accounts', { accessToken }),
   connect: (data: { accessToken: string; accountId: string }) => api.post('/ad-accounts/connect', data),
   disconnect: (id: string) => api.delete(`/ad-accounts/${id}`),
-  sync: (id: string) => api.post(`/ad-accounts/${id}/sync`),
-  getSyncStatus: (id: string) => api.get(`/ad-accounts/${id}/sync-status`),
+  sync: (id: string) =>
+    api.post<{ message: string; job: Pick<SyncJob, 'id' | 'status'> }>(`/ad-accounts/${id}/sync`),
+  getSyncStatus: (id: string) => api.get<AdAccountSyncStatus>(`/ad-accounts/${id}/sync-status`),
 };
 
 export const dashboardAPI = {

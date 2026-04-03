@@ -36,6 +36,27 @@ export interface AdAccount {
   created_at: string;
 }
 
+export interface SyncJob {
+  id: string;
+  ad_account_id: string;
+  job_type: 'full_sync' | 'incremental_sync' | 'insights_sync';
+  status: 'pending' | 'running' | 'completed' | 'failed';
+  records_synced: number;
+  started_at?: string | null;
+  completed_at?: string | null;
+  error_message?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AdAccountSyncStatus {
+  ad_account_id: string;
+  last_synced_at?: string | null;
+  daily_sync_count?: number;
+  last_sync_date?: string | null;
+  recent_jobs: SyncJob[];
+}
+
 export interface Campaign {
   id: string;
   name: string;
