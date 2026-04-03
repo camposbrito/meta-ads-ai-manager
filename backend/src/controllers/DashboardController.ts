@@ -60,6 +60,9 @@ export class DashboardController {
     const totalsRow = (await Insight.findOne({
       where: {
         ad_account_id: { [Op.in]: adAccountIds },
+        campaign_id: null,
+        ad_set_id: null,
+        ad_id: null,
         date: { [Op.gte]: startDate.toISOString().split('T')[0] },
       },
       attributes: [
@@ -120,6 +123,9 @@ export class DashboardController {
     const insights = await Insight.findAll({
       where: {
         ad_account_id: { [Op.in]: adAccounts.map((account) => account.id) },
+        campaign_id: null,
+        ad_set_id: null,
+        ad_id: null,
         date: { [Op.gte]: startDate.toISOString().split('T')[0] },
       },
       order: [['date', 'ASC']],
