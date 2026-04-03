@@ -270,7 +270,6 @@ export class MetaApiService {
         params: {
           fields:
             'date,impressions,reach,clicks,ctr,cpc,cpm,spend,conversions,conversion_value,frequency',
-          sort: 'date_desc',
           ...(dateRange
             ? {
                 date_preset: 'custom',
