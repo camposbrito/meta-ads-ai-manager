@@ -10,7 +10,8 @@ import {
   OptimizationSuggestion,
 } from '../models';
 import { calculatePerformanceMetrics } from '../utils/metrics';
-import { parsePositiveInt, requireAuth } from '../utils/request';
+import { AppError } from '../middleware/errorHandler';
+import { parsePositiveInt, requireAuth, requireString } from '../utils/request';
 
 export class DashboardController {
   async getOverview(req: AuthRequest, res: Response): Promise<void> {
@@ -251,6 +252,7 @@ export class DashboardController {
           status: campaign.status,
           objective: campaign.objective,
           daily_budget: campaign.daily_budget != null ? Number(campaign.daily_budget) : null,
+          ad_account_id: campaign.ad_account_id,
           ad_account_name: campaign.adAccount?.name,
           spend: metrics.spend,
           impressions: metrics.impressions,
@@ -263,6 +265,93 @@ export class DashboardController {
           roas: metrics.roas,
         };
       }),
+    });
+  }
+
+  async getCampaignAds(req: AuthRequest, res: Response): Promise<void> {
+    const user = requireAuth(req);
+    const campaignId = requireString(req.params.campaignId, 'campaignId');
+    const daysNum = parsePositiveInt(req.query.days, 'days', 30, { min: 1, max: 365 });
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - daysNum);
+
+    const campaign = await Campaign.findOne({
+      where: { id: campaignId, is_active: true },
+      include: [
+        {
+          model: AdAccount,
+          as: 'adAccount',
+          attributes: ['id', 'organization_id', 'name'],
+        },
+      ],
+    });
+
+    if (!campaign || !campaign.adAccount || campaign.adAccount.organization_id !== user.organizationId) {
+      throw new AppError('Campaign not found', 404);
+    }
+
+    const insights = await Insight.findAll({
+      where: {
+        campaign_id: campaign.id,
+        ad_id: { [Op.ne]: null },
+        date: { [Op.gte]: startDate.toISOString().split('T')[0] },
+      },
+      attributes: [
+        'ad_id',
+        [Insight.sequelize!.fn('COALESCE', Insight.sequelize!.fn('SUM', Insight.sequelize!.col('spend')), 0), 'spend'],
+        [Insight.sequelize!.fn('COALESCE', Insight.sequelize!.fn('SUM', Insight.sequelize!.col('impressions')), 0), 'impressions'],
+        [Insight.sequelize!.fn('COALESCE', Insight.sequelize!.fn('SUM', Insight.sequelize!.col('clicks')), 0), 'clicks'],
+        [Insight.sequelize!.fn('COALESCE', Insight.sequelize!.fn('SUM', Insight.sequelize!.col('conversions')), 0), 'conversions'],
+        [Insight.sequelize!.fn('COALESCE', Insight.sequelize!.fn('SUM', Insight.sequelize!.col('conversion_value')), 0), 'conversion_value'],
+        [Insight.sequelize!.fn('COALESCE', Insight.sequelize!.fn('SUM', Insight.sequelize!.col('reach')), 0), 'reach'],
+      ],
+      group: ['ad_id', 'ad.id'],
+      include: [
+        {
+          model: Ad,
+          as: 'ad',
+          attributes: ['id', 'name', 'headline', 'status'],
+        },
+      ],
+      order: [[Insight.sequelize!.fn('SUM', Insight.sequelize!.col('spend')), 'DESC']],
+    });
+
+    res.json({
+      campaign: {
+        id: campaign.id,
+        name: campaign.name,
+      },
+      ads: insights.map((insight: any) => {
+        const performance = calculatePerformanceMetrics({
+          spend: Number(insight.dataValues.spend || 0),
+          impressions: Number(insight.dataValues.impressions || 0),
+          clicks: Number(insight.dataValues.clicks || 0),
+          conversions: Number(insight.dataValues.conversions || 0),
+          conversionValue: Number(insight.dataValues.conversion_value || 0),
+          reach: Number(insight.dataValues.reach || 0),
+        });
+
+        return {
+          id: insight.ad_id,
+          name: insight.ad?.name || '-',
+          headline: insight.ad?.headline || null,
+          status: insight.ad?.status || 'UNKNOWN',
+          spend: performance.spend,
+          impressions: performance.impressions,
+          clicks: performance.clicks,
+          conversions: performance.conversions,
+          revenue: performance.conversionValue,
+          ctr: performance.ctr * 100,
+          cpc: performance.cpc,
+          cpa: performance.cpa,
+          roas: performance.roas,
+        };
+      }),
+      meta: {
+        source_level: 'ad',
+        window_days: daysNum,
+        account_name: campaign.adAccount.name,
+      },
     });
   }
 

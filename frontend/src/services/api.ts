@@ -124,7 +124,11 @@ export const adAccountAPI = {
 export const dashboardAPI = {
   getOverview: (days?: number) => api.get('/dashboard/overview', { params: { days } }),
   getPerformance: (days?: number) => api.get<{ data: Insight[] }>('/dashboard/performance', { params: { days } }),
-  getCampaigns: () => api.get<{ campaigns: Campaign[] }>('/dashboard/campaigns'),
+  getCampaigns: (days?: number) => api.get<{ campaigns: Campaign[] }>('/dashboard/campaigns', { params: { days } }),
+  getCampaignAds: (campaignId: string, days?: number) =>
+    api.get<{ campaign: { id: string; name: string }; ads: Ad[] }>(`/dashboard/campaigns/${campaignId}/ads`, {
+      params: { days },
+    }),
   getTopAds: (days?: number, limit?: number) =>
     api.get<{ ads: Ad[] }>('/dashboard/top-ads', { params: { days, limit } }),
 };

@@ -38,6 +38,7 @@ export interface Campaign {
   status: string;
   objective?: string | null;
   daily_budget?: number | null;
+  ad_account_id?: string;
   ad_account_name?: string;
   spend?: number;
   impressions?: number;
@@ -60,6 +61,10 @@ export interface Ad {
   conversions?: number;
   revenue?: number;
   impressions?: number;
+  ctr?: number;
+  cpc?: number;
+  cpa?: number;
+  roas?: number;
 }
 
 export interface Insight {

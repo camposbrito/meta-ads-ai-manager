@@ -9,6 +9,7 @@ router.use(authenticate);
 router.get('/overview', dashboardController.getOverview);
 router.get('/performance', dashboardController.getPerformanceChart);
 router.get('/campaigns', dashboardController.getCampaigns);
+router.get('/campaigns/:campaignId/ads', dashboardController.getCampaignAds);
 router.get('/top-ads', dashboardController.getTopAds);
 
 export default router;
