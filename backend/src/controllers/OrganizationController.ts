@@ -4,6 +4,7 @@ import { Organization, User, AdAccount } from '../models';
 import { hashPassword } from '../services/PasswordService';
 import { v4 as uuidv4 } from 'uuid';
 import sequelize from '../config/database';
+import billingService from '../services/BillingService';
 
 export class OrganizationController {
   async getOrganization(req: AuthRequest, res: Response): Promise<void> {
@@ -129,6 +130,27 @@ export class OrganizationController {
 
       if (!email || !name) {
         res.status(400).json({ error: 'Email and name required' });
+        return;
+      }
+
+      const organization = await Organization.findByPk(req.user.organizationId);
+      if (!organization) {
+        res.status(404).json({ error: 'Organization not found' });
+        return;
+      }
+
+      const activeMembersCount = await User.count({
+        where: { organization_id: req.user.organizationId, is_active: true },
+      });
+      const limits = billingService.getPlanLimits(organization.plan as 'free' | 'pro' | 'agency');
+      if (activeMembersCount >= limits.max_users) {
+        res.status(403).json({
+          error: 'Maximum number of team members reached for your plan',
+          details: {
+            max_users: limits.max_users,
+            current_users: activeMembersCount,
+          },
+        });
         return;
       }
 

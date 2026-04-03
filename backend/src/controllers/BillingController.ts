@@ -54,8 +54,8 @@ export class BillingController {
             'Full Optimization Suite',
             'Auto-optimization',
             '365 Days Data Retention',
-            'Priority Support',
-            'Dedicated Account Manager',
+            'Priority Support (SLA)',
+            'Dedicated Success Channel',
           ],
         },
       ];
@@ -91,10 +91,20 @@ export class BillingController {
       }
 
       const limits = billingService.getPlanLimits(organization.plan as PlanType);
-      const [adAccountCount, userCount] = await Promise.all([
-        AdAccount.count({ where: { organization_id: organization.id, is_active: true } }),
+      const [adAccounts, userCount] = await Promise.all([
+        AdAccount.findAll({
+          where: { organization_id: organization.id, is_active: true },
+          attributes: ['id', 'daily_sync_count', 'last_sync_date'],
+        }),
         User.count({ where: { organization_id: organization.id, is_active: true } }),
       ]);
+      const today = new Date().toISOString().split('T')[0];
+      const dailySyncUsage = adAccounts.reduce((sum, account) => {
+        if (account.last_sync_date !== today) {
+          return sum;
+        }
+        return sum + Number(account.daily_sync_count || 0);
+      }, 0);
 
       res.json({
         plan: {
@@ -104,8 +114,8 @@ export class BillingController {
           ends_at: organization.subscription_ends_at,
           limits,
           usage: {
-            ad_accounts: adAccountCount,
-            daily_syncs: 0,
+            ad_accounts: adAccounts.length,
+            daily_syncs: dailySyncUsage,
             users: userCount,
           },
         },

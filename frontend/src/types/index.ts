@@ -168,6 +168,7 @@ export interface BillingSubscription {
   usage: {
     ad_accounts: number;
     daily_syncs: number;
+    users?: number;
   };
 }
 

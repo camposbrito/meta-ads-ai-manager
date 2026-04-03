@@ -12,6 +12,7 @@ export function BillingPage() {
   const [loading, setLoading] = useState(true);
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'yearly'>('monthly');
   const [upgradingPlanId, setUpgradingPlanId] = useState<string | null>(null);
+  const [cancelingSubscription, setCancelingSubscription] = useState(false);
   const [checkoutMessage, setCheckoutMessage] = useState<string | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -53,6 +54,7 @@ export function BillingPage() {
   const handleUpgrade = async (plan: string) => {
     setUpgradingPlanId(plan);
     try {
+      setCheckoutMessage(null);
       const response = await billingAPI.upgrade(plan, billingCycle);
       const checkoutUrl = response.data.checkout_url;
 
@@ -66,6 +68,28 @@ export function BillingPage() {
       console.error('Error upgrading plan:', error);
     } finally {
       setUpgradingPlanId(null);
+    }
+  };
+
+  const handleCancelSubscription = async () => {
+    const confirmed = window.confirm(
+      'Deseja cancelar a assinatura? O acesso será mantido até o fim do período atual.'
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setCancelingSubscription(true);
+    try {
+      await billingAPI.cancel();
+      setCheckoutMessage('Assinatura cancelada com sucesso. O acesso segue até o fim do ciclo.');
+      await loadData();
+    } catch (error) {
+      console.error('Error canceling subscription:', error);
+      setCheckoutMessage('Não foi possível cancelar a assinatura agora.');
+    } finally {
+      setCancelingSubscription(false);
     }
   };
 
@@ -137,8 +161,29 @@ export function BillingPage() {
               <p className="text-sm text-gray-500">
                 {currentPlan.usage?.daily_syncs} sincronizações diárias
               </p>
+              <p className="text-sm text-gray-500">
+                {currentPlan.usage?.users ?? 0} usuários ativos
+              </p>
+              <p className="text-xs text-gray-400 mt-1">
+                Retenção: {currentPlan.limits?.data_retention_days} dias
+              </p>
+              <p className="text-xs text-gray-400">
+                Suporte: {currentPlan.limits?.support_level}
+              </p>
             </div>
           </div>
+          {currentPlan.id !== 'free' && (
+            <div className="mt-4 flex justify-end">
+              <Button
+                variant="ghost"
+                className="text-red-600 hover:bg-red-50 focus:ring-red-500"
+                onClick={handleCancelSubscription}
+                isLoading={cancelingSubscription}
+              >
+                Cancelar assinatura
+              </Button>
+            </div>
+          )}
         </Card>
       )}
 

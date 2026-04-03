@@ -1,4 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
+import { Op, type Transaction } from 'sequelize';
 import MetaApiService from './MetaApiService';
 import {
   ExecutedAction,
@@ -30,6 +31,10 @@ export class ActionExecutionService {
       const adAccount = await AdAccount.findByPk(input.adAccountId, { transaction });
       if (!adAccount) {
         throw new AppError('Ad account not found', 404);
+      }
+
+      if (input.executionMethod === 'automatic') {
+        await this.enforceDailyAutomaticActionLimit(input.adAccountId, transaction);
       }
 
       const action = await ExecutedAction.create(
@@ -199,6 +204,40 @@ export class ActionExecutionService {
         { model: OptimizationSuggestion, as: 'suggestion' },
       ],
     });
+  }
+
+  private getAutomaticActionDailyLimit(): number {
+    const parsed = Number.parseInt(process.env.OPTIMIZATION_AUTO_ACTION_DAILY_LIMIT || '25', 10);
+    if (!Number.isFinite(parsed) || parsed < 1) {
+      return 25;
+    }
+    return parsed;
+  }
+
+  private async enforceDailyAutomaticActionLimit(
+    adAccountId: string,
+    transaction: Transaction
+  ): Promise<void> {
+    const dailyLimit = this.getAutomaticActionDailyLimit();
+    const dayStart = new Date();
+    dayStart.setUTCHours(0, 0, 0, 0);
+
+    const todayAutomaticActions = await ExecutedAction.count({
+      where: {
+        ad_account_id: adAccountId,
+        execution_method: 'automatic',
+        created_at: {
+          [Op.gte]: dayStart,
+        },
+      },
+      transaction,
+    });
+
+    if (todayAutomaticActions >= dailyLimit) {
+      throw new AppError('Automatic action daily limit reached for this ad account', 429, {
+        max_daily_automatic_actions: dailyLimit,
+      });
+    }
   }
 }
 
