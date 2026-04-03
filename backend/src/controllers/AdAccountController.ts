@@ -20,20 +20,20 @@ import sequelize from '../config/database';
 import { AppError } from '../middleware/errorHandler';
 import { requireAuth, requireString } from '../utils/request';
 
-export class AdAccountController {
-  private parseDeleteHistoryFlag(value: unknown): boolean {
-    if (typeof value === 'boolean') {
-      return value;
-    }
-
-    if (typeof value === 'string') {
-      const normalized = value.trim().toLowerCase();
-      return normalized === 'true' || normalized === '1' || normalized === 'yes';
-    }
-
-    return false;
+function parseDeleteHistoryFlag(value: unknown): boolean {
+  if (typeof value === 'boolean') {
+    return value;
   }
 
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    return normalized === 'true' || normalized === '1' || normalized === 'yes';
+  }
+
+  return false;
+}
+
+export class AdAccountController {
   async list(req: AuthRequest, res: Response): Promise<void> {
     const user = requireAuth(req);
 
@@ -199,7 +199,7 @@ export class AdAccountController {
   async disconnect(req: AuthRequest, res: Response): Promise<void> {
     const user = requireAuth(req);
     const { id } = req.params;
-    const deleteHistory = this.parseDeleteHistoryFlag(
+    const deleteHistory = parseDeleteHistoryFlag(
       typeof req.query.delete_history !== 'undefined' ? req.query.delete_history : req.body?.delete_history
     );
     const transaction = await sequelize.transaction();
