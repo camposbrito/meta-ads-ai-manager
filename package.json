@@ -1,6 +1,6 @@
 {
   "name": "meta-ads-ai-manager",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Meta Ads AI Manager - SaaS Platform",
   "private": true,
   "scripts": {
