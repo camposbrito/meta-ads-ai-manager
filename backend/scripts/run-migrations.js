@@ -16,7 +16,7 @@ const sequelize = new Sequelize(
 );
 
 async function runMigrations() {
-  const migrationsPath = path.join(__dirname, 'migrations');
+  const migrationsPath = path.join(__dirname, '..', 'migrations');
   const migrationFiles = fs.readdirSync(migrationsPath)
     .filter(f => f.endsWith('.ts'))
     .sort();
