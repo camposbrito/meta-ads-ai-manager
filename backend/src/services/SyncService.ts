@@ -377,16 +377,16 @@ export class SyncService {
     const values = {
       ad_set_id: adSet.id,
       meta_ad_id: metaAd.id,
-      name: metaAd.name,
+      name: this.sanitizeRequiredText(metaAd.name),
       status: metaAd.status,
       creative_type: creative.creativeType,
-      headline: creative.headline,
-      primary_text: creative.primaryText,
-      description: creative.description,
-      call_to_action: creative.callToAction,
-      link_url: creative.linkUrl,
-      image_url: creative.imageUrl,
-      video_url: creative.videoUrl,
+      headline: this.sanitizeText(creative.headline),
+      primary_text: this.sanitizeText(creative.primaryText),
+      description: this.sanitizeText(creative.description),
+      call_to_action: this.sanitizeText(creative.callToAction),
+      link_url: this.sanitizeText(creative.linkUrl),
+      image_url: this.sanitizeText(creative.imageUrl),
+      video_url: this.sanitizeText(creative.videoUrl),
       is_active: metaAd.status !== 'DELETED',
     };
 
@@ -451,6 +451,26 @@ export class SyncService {
       imageUrl,
       videoUrl,
     };
+  }
+
+  private sanitizeText(value: string | null | undefined): string | null {
+    if (typeof value !== 'string') {
+      return null;
+    }
+
+    const sanitized = value
+      .replace(/\u0000/g, '')
+      .normalize('NFKC')
+      // Keep line breaks/tabs and latin-1 range; drop unsupported symbols (e.g. emoji).
+      .replace(/[^\u0009\u000A\u000D\u0020-\u00FF]/g, '')
+      .trim();
+
+    return sanitized === '' ? null : sanitized;
+  }
+
+  private sanitizeRequiredText(value: string): string {
+    const sanitized = this.sanitizeText(value);
+    return sanitized || '[invalid-text]';
   }
 
   private async syncInsight(
