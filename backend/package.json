@@ -9,13 +9,13 @@
     "worker": "ts-node src/worker.ts",
     "worker:start": "node dist/worker.js",
     "setup": "ts-node scripts/setup.ts",
-    "migrate": "ts-node scripts/run-migrations.ts",
+    "migrate": "node scripts/run-migrations.js",
     "migrate:undo": "sequelize-cli db:migrate:undo",
     "migrate:seed": "sequelize-cli db:seed:all",
     "lint": "eslint src --ext .ts",
     "lint:fix": "eslint src --ext .ts --fix",
     "format": "prettier --write \"src/**/*.ts\"",
-    "test": "node --test tests"
+    "test": "node --test \"tests/**/*.test.js\""
   },
   "keywords": [
     "meta-ads",
@@ -40,6 +40,7 @@
     "jsonwebtoken": "^9.0.3",
     "mysql2": "^3.20.0",
     "sequelize": "^6.37.8",
+    "stripe": "^18.1.1",
     "uuid": "^13.0.0"
   },
   "devDependencies": {

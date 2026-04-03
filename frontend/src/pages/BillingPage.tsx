@@ -3,13 +3,14 @@ import { Check } from 'lucide-react';
 import { billingAPI } from '../services/api';
 import { Card } from '../components/Card';
 import { Button } from '../components/Button';
-import type { Plan } from '../types';
+import type { BillingSubscription, Plan } from '../types';
 
 export function BillingPage() {
   const [plans, setPlans] = useState<Plan[]>([]);
-  const [currentPlan, setCurrentPlan] = useState<any>(null);
+  const [currentPlan, setCurrentPlan] = useState<BillingSubscription | null>(null);
   const [loading, setLoading] = useState(true);
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'yearly'>('monthly');
+  const [upgradingPlanId, setUpgradingPlanId] = useState<string | null>(null);
 
   useEffect(() => {
     loadData();
@@ -31,11 +32,21 @@ export function BillingPage() {
   };
 
   const handleUpgrade = async (plan: string) => {
+    setUpgradingPlanId(plan);
     try {
-      await billingAPI.upgrade(plan, billingCycle);
-      loadData();
+      const response = await billingAPI.upgrade(plan, billingCycle);
+      const checkoutUrl = response.data.checkout_url;
+
+      if (checkoutUrl) {
+        window.location.href = checkoutUrl;
+        return;
+      }
+
+      await loadData();
     } catch (error) {
       console.error('Error upgrading plan:', error);
+    } finally {
+      setUpgradingPlanId(null);
     }
   };
 
@@ -149,6 +160,7 @@ export function BillingPage() {
               variant={currentPlan?.id === plan.id ? 'secondary' : 'primary'}
               className="w-full"
               onClick={() => handleUpgrade(plan.id)}
+              isLoading={upgradingPlanId === plan.id}
               disabled={currentPlan?.id === plan.id}
             >
               {currentPlan?.id === plan.id ? 'Plano Atual' : 'Assinar'}

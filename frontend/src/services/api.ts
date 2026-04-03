@@ -1,5 +1,20 @@
 import axios from 'axios';
-import type { AuthTokens, User, Organization, AdAccount, Campaign, Ad, Insight, OptimizationSuggestion, OptimizationRule, Plan } from '../types';
+import type {
+  AuthTokens,
+  User,
+  Organization,
+  AdAccount,
+  Campaign,
+  Ad,
+  Insight,
+  OptimizationSuggestion,
+  OptimizationRule,
+  Plan,
+  TeamMember,
+  RuleCondition,
+  RuleAction,
+  BillingSubscription,
+} from '../types';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
 
@@ -72,13 +87,25 @@ export const authAPI = {
 export const organizationAPI = {
   get: () => api.get<{ organization: Organization }>('/organization'),
   update: (data: { name: string }) => api.put<{ organization: Organization }>('/organization', data),
-  getMembers: () => api.get<{ members: any[] }>('/organization/members'),
+  getMembers: () => api.get<{ members: TeamMember[] }>('/organization/members'),
   addMember: (data: { email: string; name: string; role: string }) =>
     api.post('/organization/members', data),
   removeMember: (id: string) => api.delete(`/organization/members/${id}`),
   updateMemberRole: (id: string, role: string) =>
     api.patch(`/organization/members/${id}/role`, { role }),
 };
+
+interface OptimizationRuleInput {
+  name: string;
+  description?: string | null;
+  rule_type: OptimizationRule['rule_type'];
+  conditions: RuleCondition[];
+  actions: RuleAction[];
+  priority?: number;
+  min_spend_threshold?: number;
+  min_impressions_threshold?: number;
+  evaluation_period_days?: number;
+}
 
 export const adAccountAPI = {
   list: () => api.get<{ accounts: AdAccount[] }>('/ad-accounts'),
@@ -99,8 +126,8 @@ export const dashboardAPI = {
 
 export const optimizationAPI = {
   getRules: () => api.get<{ rules: OptimizationRule[] }>('/optimization/rules'),
-  createRule: (data: any) => api.post('/optimization/rules', data),
-  updateRule: (id: string, data: any) => api.put(`/optimization/rules/${id}`, data),
+  createRule: (data: OptimizationRuleInput) => api.post('/optimization/rules', data),
+  updateRule: (id: string, data: Partial<OptimizationRuleInput>) => api.put(`/optimization/rules/${id}`, data),
   deleteRule: (id: string) => api.delete(`/optimization/rules/${id}`),
   toggleRule: (id: string, is_active: boolean) =>
     api.patch(`/optimization/rules/${id}/toggle`, { is_active }),
@@ -118,9 +145,12 @@ export const optimizationAPI = {
 
 export const billingAPI = {
   getPlans: () => api.get<{ plans: Plan[] }>('/billing/plans'),
-  getSubscription: () => api.get('/billing/subscription'),
+  getSubscription: () => api.get<{ plan: BillingSubscription }>('/billing/subscription'),
   upgrade: (plan: string, billing_cycle?: string) =>
-    api.post('/billing/upgrade', { plan, billing_cycle }),
+    api.post<{ message: string; plan?: string; checkout_url?: string; session_id?: string }>(
+      '/billing/upgrade',
+      { plan, billing_cycle }
+    ),
   cancel: () => api.post('/billing/cancel'),
 };
 

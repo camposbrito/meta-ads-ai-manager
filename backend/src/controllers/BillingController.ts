@@ -1,7 +1,9 @@
 import { Response } from 'express';
 import { AuthRequest } from '../middleware/auth';
-import { Organization } from '../models';
-import billingService, { PlanType } from '../services/BillingService';
+import { AdAccount, Organization, User } from '../models';
+import billingService, { BillingCycle, PlanType } from '../services/BillingService';
+import { AppError } from '../middleware/errorHandler';
+import type { Request } from 'express';
 
 export class BillingController {
   async getPlans(req: AuthRequest, res: Response): Promise<void> {
@@ -89,6 +91,10 @@ export class BillingController {
       }
 
       const limits = billingService.getPlanLimits(organization.plan as PlanType);
+      const [adAccountCount, userCount] = await Promise.all([
+        AdAccount.count({ where: { organization_id: organization.id, is_active: true } }),
+        User.count({ where: { organization_id: organization.id, is_active: true } }),
+      ]);
 
       res.json({
         plan: {
@@ -98,8 +104,9 @@ export class BillingController {
           ends_at: organization.subscription_ends_at,
           limits,
           usage: {
-            ad_accounts: organization.max_ad_accounts,
-            daily_syncs: organization.max_daily_syncs,
+            ad_accounts: adAccountCount,
+            daily_syncs: 0,
+            users: userCount,
           },
         },
       });
@@ -127,13 +134,30 @@ export class BillingController {
         return;
       }
 
-      const organization = await billingService.upgradePlan(req.user.organizationId, plan as PlanType);
+      if (!['monthly', 'yearly'].includes(billing_cycle)) {
+        res.status(400).json({ error: 'billing_cycle must be monthly or yearly' });
+        return;
+      }
 
-      // In production, this would create a Stripe checkout session
+      if (plan === 'free') {
+        const organization = await billingService.downgradePlan(req.user.organizationId, 'free');
+        res.json({
+          message: 'Plan changed successfully',
+          plan: organization.plan,
+        });
+        return;
+      }
+
+      const checkout = await billingService.createCheckoutSession(
+        req.user.organizationId,
+        plan as PlanType,
+        billing_cycle as BillingCycle
+      );
+
       res.json({
-        message: 'Plan upgraded successfully',
-        plan: organization.plan,
-        // checkout_url: stripeSession.url, // Would redirect to Stripe
+        message: 'Checkout session created',
+        checkout_url: checkout.url,
+        session_id: checkout.id,
       });
     } catch (error) {
       if (error instanceof Error) {
@@ -162,6 +186,28 @@ export class BillingController {
         message: 'Subscription canceled. Access continues until the end of the billing period.',
         subscription_ends_at: organization.subscription_ends_at,
       });
+    } catch (error) {
+      if (error instanceof Error) {
+        res.status(400).json({ error: error.message });
+        return;
+      }
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+
+  async handleStripeWebhook(req: Request, res: Response): Promise<void> {
+    try {
+      const signature = req.headers['stripe-signature'];
+      if (typeof signature !== 'string') {
+        throw new AppError('Missing stripe-signature header', 400);
+      }
+
+      if (!Buffer.isBuffer(req.body)) {
+        throw new AppError('Invalid webhook payload', 400);
+      }
+
+      await billingService.handleStripeWebhook(req.body, signature);
+      res.json({ received: true });
     } catch (error) {
       if (error instanceof Error) {
         res.status(400).json({ error: error.message });

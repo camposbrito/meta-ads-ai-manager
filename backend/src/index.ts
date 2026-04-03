@@ -7,6 +7,7 @@ import dotenv from 'dotenv';
 import routes from './routes';
 import { notFound, errorHandler } from './middleware/errorHandler';
 import sequelize from './config/database';
+import billingController from './controllers/BillingController';
 
 dotenv.config();
 
@@ -31,6 +32,13 @@ const limiter = rateLimit({
   message: 'Too many requests from this IP',
 });
 app.use('/api', limiter);
+
+// Stripe webhook must use raw body for signature verification
+app.post(
+  '/api/billing/webhook',
+  express.raw({ type: 'application/json' }),
+  billingController.handleStripeWebhook.bind(billingController)
+);
 
 // Body parsing middleware
 app.use(express.json({ limit: '10mb' }));
