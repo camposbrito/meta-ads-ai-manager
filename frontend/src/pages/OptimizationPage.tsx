@@ -1,35 +1,43 @@
-import { useState, useEffect } from 'react';
-import { Lightbulb, Check, X, Play, Settings } from 'lucide-react';
-import { optimizationAPI } from '../services/api';
+import { useState, useEffect, useCallback } from 'react';
+import { Lightbulb, Check, X, Play, Settings, TrendingUp } from 'lucide-react';
+import { optimizationAPI, adAccountAPI } from '../services/api';
 import { Card } from '../components/Card';
 import { Button } from '../components/Button';
-import type { OptimizationSuggestion, OptimizationRule } from '../types';
+import type { AdAccount, OptimizationSuggestion, OptimizationRule } from '../types';
 
 export function OptimizationPage() {
   const [suggestions, setSuggestions] = useState<OptimizationSuggestion[]>([]);
   const [rules, setRules] = useState<OptimizationRule[]>([]);
+  const [adAccounts, setAdAccounts] = useState<AdAccount[]>([]);
+  const [selectedAccountId, setSelectedAccountId] = useState<string>('');
   const [loading, setLoading] = useState(true);
+  const [runningOptimization, setRunningOptimization] = useState(false);
   const [activeTab, setActiveTab] = useState<'suggestions' | 'rules'>('suggestions');
 
-  useEffect(() => {
-    loadData();
-  }, []);
-
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [suggestionsRes, rulesRes] = await Promise.all([
+      const [suggestionsRes, rulesRes, accountsRes] = await Promise.all([
         optimizationAPI.getSuggestions('pending'),
         optimizationAPI.getRules(),
+        adAccountAPI.list(),
       ]);
       setSuggestions(suggestionsRes.data.suggestions);
       setRules(rulesRes.data.rules);
+      setAdAccounts(accountsRes.data.accounts);
+      if (!selectedAccountId && accountsRes.data.accounts.length > 0) {
+        setSelectedAccountId(accountsRes.data.accounts[0].id);
+      }
     } catch (error) {
       console.error('Error loading optimization data:', error);
     } finally {
       setLoading(false);
     }
-  };
+  }, [selectedAccountId]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
 
   const handleAccept = async (id: string, execute: boolean) => {
     try {
@@ -55,6 +63,22 @@ export function OptimizationPage() {
       loadData();
     } catch (error) {
       console.error('Error toggling rule:', error);
+    }
+  };
+
+  const handleRunOptimization = async () => {
+    if (!selectedAccountId) {
+      return;
+    }
+
+    setRunningOptimization(true);
+    try {
+      await optimizationAPI.runOptimization(selectedAccountId);
+      await loadData();
+    } catch (error) {
+      console.error('Error running optimization:', error);
+    } finally {
+      setRunningOptimization(false);
     }
   };
 
@@ -100,10 +124,28 @@ export function OptimizationPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-900">Otimização</h1>
-        <Button>
-          <Play className="h-4 w-4 mr-2" />
-          Executar Análise
-        </Button>
+        <div className="flex items-center gap-2">
+          <select
+            value={selectedAccountId}
+            onChange={(event) => setSelectedAccountId(event.target.value)}
+            className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white"
+          >
+            {adAccounts.length === 0 && <option value="">Sem contas conectadas</option>}
+            {adAccounts.map((account) => (
+              <option key={account.id} value={account.id}>
+                {account.name}
+              </option>
+            ))}
+          </select>
+          <Button
+            onClick={handleRunOptimization}
+            disabled={!selectedAccountId}
+            isLoading={runningOptimization}
+          >
+            <Play className="h-4 w-4 mr-2" />
+            Executar Análise
+          </Button>
+        </div>
       </div>
 
       {/* Tabs */}
@@ -266,5 +308,3 @@ export function OptimizationPage() {
     </div>
   );
 }
-
-import { TrendingUp } from 'lucide-react';

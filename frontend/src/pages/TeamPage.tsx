@@ -3,20 +3,21 @@ import { Plus, Mail, Shield, User } from 'lucide-react';
 import { organizationAPI } from '../services/api';
 import { Card } from '../components/Card';
 import { Button } from '../components/Button';
-
-interface Member {
-  id: string;
-  email: string;
-  name: string;
-  role: 'admin' | 'member';
-  last_login_at?: string | null;
-  created_at: string;
-}
+import type { TeamMember } from '../types';
+import type { FormEvent } from 'react';
 
 export function TeamPage() {
-  const [members, setMembers] = useState<Member[]>([]);
+  const [members, setMembers] = useState<TeamMember[]>([]);
   const [loading, setLoading] = useState(true);
   const [showInviteModal, setShowInviteModal] = useState(false);
+  const [isInviting, setIsInviting] = useState(false);
+  const [inviteError, setInviteError] = useState('');
+  const [temporaryPassword, setTemporaryPassword] = useState('');
+  const [inviteData, setInviteData] = useState({
+    name: '',
+    email: '',
+    role: 'member' as 'admin' | 'member',
+  });
 
   useEffect(() => {
     loadMembers();
@@ -33,6 +34,34 @@ export function TeamPage() {
     }
   };
 
+  const resetInviteForm = () => {
+    setInviteData({ name: '', email: '', role: 'member' });
+    setInviteError('');
+    setTemporaryPassword('');
+  };
+
+  const handleCloseInviteModal = () => {
+    resetInviteForm();
+    setShowInviteModal(false);
+  };
+
+  const handleInviteSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setInviteError('');
+    setTemporaryPassword('');
+    setIsInviting(true);
+
+    try {
+      const response = await organizationAPI.addMember(inviteData);
+      setTemporaryPassword(response.data.temporary_password || '');
+      await loadMembers();
+    } catch {
+      setInviteError('Não foi possível convidar o membro. Verifique os dados e tente novamente.');
+    } finally {
+      setIsInviting(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -45,7 +74,12 @@ export function TeamPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-900">Equipe</h1>
-        <Button onClick={() => setShowInviteModal(true)}>
+        <Button
+          onClick={() => {
+            resetInviteForm();
+            setShowInviteModal(true);
+          }}
+        >
           <Plus className="h-4 w-4 mr-2" />
           Convidar Membro
         </Button>
@@ -97,13 +131,30 @@ export function TeamPage() {
               <h2 className="text-xl font-bold text-gray-900 mb-4">
                 Convidar Membro
               </h2>
-              <form className="space-y-4">
+              <form id="invite-member-form" className="space-y-4" onSubmit={handleInviteSubmit}>
+                {inviteError && (
+                  <div className="bg-red-50 border border-red-200 text-red-600 px-3 py-2 rounded-lg text-sm">
+                    {inviteError}
+                  </div>
+                )}
+
+                {temporaryPassword && (
+                  <div className="bg-green-50 border border-green-200 text-green-700 px-3 py-2 rounded-lg text-sm">
+                    Usuário criado. Senha temporária: <strong>{temporaryPassword}</strong>
+                  </div>
+                )}
+
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Nome
                   </label>
                   <input
                     type="text"
+                    value={inviteData.name}
+                    onChange={(event) =>
+                      setInviteData((prev) => ({ ...prev, name: event.target.value }))
+                    }
+                    required
                     className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                     placeholder="Nome completo"
                   />
@@ -114,6 +165,11 @@ export function TeamPage() {
                   </label>
                   <input
                     type="email"
+                    value={inviteData.email}
+                    onChange={(event) =>
+                      setInviteData((prev) => ({ ...prev, email: event.target.value }))
+                    }
+                    required
                     className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                     placeholder="email@empresa.com"
                   />
@@ -122,7 +178,16 @@ export function TeamPage() {
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Cargo
                   </label>
-                  <select className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                  <select
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    value={inviteData.role}
+                    onChange={(event) =>
+                      setInviteData((prev) => ({
+                        ...prev,
+                        role: event.target.value as 'admin' | 'member',
+                      }))
+                    }
+                  >
                     <option value="member">Membro</option>
                     <option value="admin">Admin</option>
                   </select>
@@ -132,13 +197,13 @@ export function TeamPage() {
             <div className="flex justify-end space-x-3 px-6 py-4 bg-gray-50 rounded-b-xl">
               <Button
                 variant="secondary"
-                onClick={() => setShowInviteModal(false)}
+                onClick={handleCloseInviteModal}
               >
                 Cancelar
               </Button>
-              <Button onClick={() => setShowInviteModal(false)}>
+              <Button type="submit" form="invite-member-form" isLoading={isInviting}>
                 <Mail className="h-4 w-4 mr-2" />
-                Enviar Convite
+                Criar Membro
               </Button>
             </div>
           </div>

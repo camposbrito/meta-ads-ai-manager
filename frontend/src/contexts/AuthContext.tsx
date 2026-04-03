@@ -1,6 +1,7 @@
-import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect } from 'react';
 import { authAPI } from '../services/api';
-import type { User, Organization, AuthTokens } from '../types';
+import type { ReactNode } from 'react';
+import type { User, Organization } from '../types';
 
 interface AuthContextType {
   user: User | null;
@@ -27,7 +28,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         try {
           const response = await authAPI.me();
           setUser(response.data.user);
-        } catch (error) {
+        } catch {
           localStorage.removeItem('accessToken');
           localStorage.removeItem('refreshToken');
         }

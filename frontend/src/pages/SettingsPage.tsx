@@ -1,10 +1,51 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
 import { Card } from '../components/Card';
 import { Button } from '../components/Button';
+import { organizationAPI } from '../services/api';
+import { useAuth } from '../contexts/AuthContext';
+import type { FormEvent } from 'react';
 
 export function SettingsPage() {
   const [activeSection, setActiveSection] = useState('general');
+  const { user } = useAuth();
+  const [organizationName, setOrganizationName] = useState('');
+  const [contactEmail, setContactEmail] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [saveMessage, setSaveMessage] = useState('');
+
+  useEffect(() => {
+    const loadOrganization = async () => {
+      try {
+        const response = await organizationAPI.get();
+        setOrganizationName(response.data.organization.name || '');
+      } catch (error) {
+        console.error('Error loading organization settings:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    setContactEmail(user?.email || '');
+    loadOrganization();
+  }, [user?.email]);
+
+  const handleSaveGeneralSettings = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setSaveMessage('');
+    setSaving(true);
+
+    try {
+      await organizationAPI.update({ name: organizationName });
+      setSaveMessage('Configurações salvas com sucesso.');
+    } catch (error) {
+      console.error('Error saving organization settings:', error);
+      setSaveMessage('Não foi possível salvar as alterações.');
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -32,7 +73,12 @@ export function SettingsPage() {
       {/* General Settings */}
       {activeSection === 'general' && (
         <Card title="Configurações Gerais">
-          <form className="space-y-4">
+          <form className="space-y-4" onSubmit={handleSaveGeneralSettings}>
+            {saveMessage && (
+              <div className="bg-blue-50 border border-blue-200 text-blue-700 px-3 py-2 rounded-lg text-sm">
+                {saveMessage}
+              </div>
+            )}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Nome da Empresa
@@ -40,7 +86,9 @@ export function SettingsPage() {
               <input
                 type="text"
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                defaultValue="Minha Empresa"
+                value={organizationName}
+                onChange={(event) => setOrganizationName(event.target.value)}
+                disabled={loading}
               />
             </div>
             <div>
@@ -50,11 +98,14 @@ export function SettingsPage() {
               <input
                 type="email"
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                defaultValue="contato@empresa.com"
+                value={contactEmail}
+                onChange={(event) => setContactEmail(event.target.value)}
               />
             </div>
             <div className="flex justify-end">
-              <Button>Salvar Alterações</Button>
+              <Button type="submit" isLoading={saving} disabled={loading}>
+                Salvar Alterações
+              </Button>
             </div>
           </form>
         </Card>

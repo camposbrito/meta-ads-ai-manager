@@ -1,7 +1,9 @@
-import { useState, FormEvent } from 'react';
+import { useState } from 'react';
+import axios from 'axios';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { Button } from '../components/Button';
+import type { ChangeEvent, FormEvent } from 'react';
 
 export function RegisterPage() {
   const navigate = useNavigate();
@@ -23,14 +25,18 @@ export function RegisterPage() {
     try {
       await register(formData.email, formData.password, formData.name, formData.organizationName);
       navigate('/');
-    } catch (err: any) {
-      setError(err.response?.data?.error || 'Erro ao criar conta');
+    } catch (error: unknown) {
+      if (axios.isAxiosError<{ error?: string }>(error)) {
+        setError(error.response?.data?.error || 'Erro ao criar conta');
+      } else {
+        setError('Erro ao criar conta');
+      }
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleChange = (e: ChangeEvent<HTMLInputElement>) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
