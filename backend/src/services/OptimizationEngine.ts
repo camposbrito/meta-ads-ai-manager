@@ -5,6 +5,7 @@ import {
   AdAccount,
   AdSet,
   Campaign,
+  ExecutedAction,
   Insight,
   OptimizationRule,
   OptimizationSuggestion,
@@ -23,6 +24,32 @@ import {
 export interface RuleAction {
   type: 'pause' | 'duplicate' | 'increase_budget' | 'decrease_budget';
   params?: Record<string, any>;
+}
+
+interface SuggestionCandidate {
+  rule: OptimizationRule;
+  adAccount: AdAccount;
+  entityType: 'campaign' | 'ad_set' | 'ad';
+  entityId: string;
+  metaEntityId: string;
+  action: RuleAction;
+  suggestionType: 'pause' | 'duplicate' | 'increase_budget' | 'decrease_budget';
+  confidence: number;
+  metrics: PerformanceMetrics;
+  title: string;
+  description: string;
+  reason: string;
+  expectedImpact: string;
+  proposedChanges: Record<string, any>;
+}
+
+interface ExistingPendingSuggestionMeta {
+  id: string;
+  entityType: 'campaign' | 'ad_set' | 'ad';
+  entityId: string;
+  suggestionType: OptimizationSuggestion['suggestion_type'];
+  priority: number;
+  confidence: number;
 }
 
 export interface OptimizationResult {
@@ -46,38 +73,106 @@ export class OptimizationEngine {
       order: [['priority', 'DESC']],
     });
 
+    const rulePriorityMap = new Map<string, number>();
+    for (const rule of rules) {
+      rulePriorityMap.set(rule.id, rule.priority);
+    }
+
     const existingSuggestions = await OptimizationSuggestion.findAll({
       where: {
         ad_account_id: adAccount.id,
         status: 'pending',
       },
-      attributes: ['entity_type', 'entity_id'],
+      attributes: ['id', 'entity_type', 'entity_id', 'suggestion_type', 'rule_id', 'confidence_score'],
     });
 
-    const pendingSuggestionKeys = new Set(
-      existingSuggestions.map((suggestion) => `${suggestion.entity_type}:${suggestion.entity_id}`)
+    const existingByEntity = new Map<string, ExistingPendingSuggestionMeta[]>();
+    for (const suggestion of existingSuggestions) {
+      const key = `${suggestion.entity_type}:${suggestion.entity_id}`;
+      const current = existingByEntity.get(key) || [];
+      current.push({
+        id: suggestion.id,
+        entityType: suggestion.entity_type,
+        entityId: suggestion.entity_id,
+        suggestionType: suggestion.suggestion_type,
+        priority: suggestion.rule_id ? rulePriorityMap.get(suggestion.rule_id) || 0 : 0,
+        confidence: this.normalizeConfidence(suggestion.confidence_score),
+      });
+      existingByEntity.set(key, current);
+    }
+
+    const cooldownHours = this.getSuggestionCooldownHours();
+    const cooldownStart = new Date(Date.now() - cooldownHours * 60 * 60 * 1000);
+    const recentExecutedActions = await ExecutedAction.findAll({
+      where: {
+        ad_account_id: adAccount.id,
+        status: 'success',
+        created_at: { [Op.gte]: cooldownStart },
+      },
+      attributes: ['entity_type', 'entity_id', 'action_type'],
+    });
+
+    const recentExecutedActionKeys = new Set(
+      recentExecutedActions.map(
+        (action) => `${action.entity_type}:${action.entity_id}:${action.action_type}`
+      )
     );
 
-    const suggestions: OptimizationSuggestion[] = [];
-
+    const candidates: SuggestionCandidate[] = [];
     for (const rule of rules) {
-      const ruleSuggestions = await this.evaluateRule(rule, adAccount, pendingSuggestionKeys);
-      suggestions.push(...ruleSuggestions);
+      const ruleCandidates = await this.evaluateRule(rule, adAccount, recentExecutedActionKeys);
+      candidates.push(...ruleCandidates);
+    }
+
+    const bestCandidatesByEntity = new Map<string, SuggestionCandidate>();
+    for (const candidate of candidates) {
+      const key = `${candidate.entityType}:${candidate.entityId}`;
+      const existing = bestCandidatesByEntity.get(key);
+      if (!existing || this.isCandidatePreferred(candidate, existing)) {
+        bestCandidatesByEntity.set(key, candidate);
+      }
+    }
+
+    const createdSuggestions: OptimizationSuggestion[] = [];
+    for (const [entityKey, candidate] of bestCandidatesByEntity.entries()) {
+      const existingForEntity = existingByEntity.get(entityKey) || [];
+      const bestExisting = this.getBestExistingSuggestion(existingForEntity);
+
+      if (bestExisting && !this.isCandidatePreferredOverExisting(candidate, bestExisting)) {
+        continue;
+      }
+
+      if (existingForEntity.length > 0) {
+        await OptimizationSuggestion.update(
+          {
+            status: 'expired',
+            reviewed_at: new Date(),
+          },
+          {
+            where: {
+              id: { [Op.in]: existingForEntity.map((item) => item.id) },
+            },
+          }
+        );
+      }
+
+      const suggestion = await this.persistSuggestion(candidate);
+      createdSuggestions.push(suggestion);
     }
 
     return {
-      suggestions,
+      suggestions: createdSuggestions,
       rulesEvaluated: rules.length,
-      suggestionsGenerated: suggestions.length,
+      suggestionsGenerated: createdSuggestions.length,
     };
   }
 
   private async evaluateRule(
     rule: OptimizationRule,
     adAccount: AdAccount,
-    pendingSuggestionKeys: Set<string>
-  ): Promise<OptimizationSuggestion[]> {
-    const suggestions: OptimizationSuggestion[] = [];
+    recentExecutedActionKeys: Set<string>
+  ): Promise<SuggestionCandidate[]> {
+    const candidates: SuggestionCandidate[] = [];
     const conditions = JSON.parse(rule.conditions) as RuleCondition[];
     const actions = JSON.parse(rule.actions) as RuleAction[];
 
@@ -104,52 +199,77 @@ export class OptimizationEngine {
       const [entityType, entityId] = entityKey.split(':');
       const metrics = this.calculateMetrics(entityData.insights);
 
-      if (
-        metrics.spend < Number(rule.min_spend_threshold) ||
-        metrics.impressions < Number(rule.min_impressions_threshold)
-      ) {
+      const minImpressions = Math.max(
+        Number(rule.min_impressions_threshold || 0),
+        this.getGlobalMinImpressions()
+      );
+      const minSpend = Math.max(
+        Number(rule.min_spend_threshold || 0),
+        this.getGlobalMinSpend()
+      );
+
+      if (metrics.impressions < minImpressions || metrics.spend < minSpend) {
         continue;
       }
 
-      if (evaluateConditions(conditions, metrics)) {
-        for (const action of actions) {
-          const suggestion = await this.createSuggestion(
-            rule,
-            adAccount,
-            entityType as 'campaign' | 'ad_set' | 'ad',
-            entityId,
-            entityData.metaEntityId,
-            action,
-            metrics,
-            pendingSuggestionKeys
-          );
+      if (!evaluateConditions(conditions, metrics)) {
+        continue;
+      }
 
-          if (suggestion) {
-            suggestions.push(suggestion);
-          }
+      for (const action of actions) {
+        const candidate = this.buildCandidate({
+          rule,
+          adAccount,
+          entityType: entityType as 'campaign' | 'ad_set' | 'ad',
+          entityId,
+          metaEntityId: entityData.metaEntityId,
+          action,
+          metrics,
+          recentExecutedActionKeys,
+        });
+
+        if (candidate) {
+          candidates.push(candidate);
         }
       }
     }
 
-    return suggestions;
+    return candidates;
   }
 
-  private async createSuggestion(
-    rule: OptimizationRule,
-    adAccount: AdAccount,
-    entityType: 'campaign' | 'ad_set' | 'ad',
-    entityId: string,
-    metaEntityId: string,
-    action: RuleAction,
-    metrics: PerformanceMetrics,
-    pendingSuggestionKeys: Set<string>
-  ): Promise<OptimizationSuggestion | null> {
+  private buildCandidate(input: {
+    rule: OptimizationRule;
+    adAccount: AdAccount;
+    entityType: 'campaign' | 'ad_set' | 'ad';
+    entityId: string;
+    metaEntityId: string;
+    action: RuleAction;
+    metrics: PerformanceMetrics;
+    recentExecutedActionKeys: Set<string>;
+  }): SuggestionCandidate | null {
+    const { rule, adAccount, entityType, entityId, metaEntityId, action, metrics, recentExecutedActionKeys } = input;
+
     if (action.type === 'duplicate' && entityType !== 'ad') {
       return null;
     }
 
-    const suggestionKey = `${entityType}:${entityId}`;
-    if (pendingSuggestionKeys.has(suggestionKey)) {
+    if (
+      (action.type === 'increase_budget' || action.type === 'decrease_budget') &&
+      entityType === 'ad'
+    ) {
+      return null;
+    }
+
+    const executedActionType = this.mapActionToExecutedActionType(action.type, entityType);
+    if (executedActionType) {
+      const cooldownKey = `${entityType}:${entityId}:${executedActionType}`;
+      if (recentExecutedActionKeys.has(cooldownKey)) {
+        return null;
+      }
+    }
+
+    const confidence = this.calculateConfidence(metrics);
+    if (confidence < this.getMinConfidenceThreshold()) {
       return null;
     }
 
@@ -157,28 +277,164 @@ export class OptimizationEngine {
     const { title, description, reason, expectedImpact, proposedChanges } =
       this.generateSuggestionContent(action, entityType, metrics);
 
-    const suggestion = await OptimizationSuggestion.create({
-      id: uuidv4(),
-      organization_id: adAccount.organization_id,
-      ad_account_id: adAccount.id,
-      rule_id: rule.id,
-      entity_type: entityType,
-      entity_id: entityId,
-      meta_entity_id: metaEntityId,
-      suggestion_type: suggestionType,
+    return {
+      rule,
+      adAccount,
+      entityType,
+      entityId,
+      metaEntityId,
+      action,
+      suggestionType,
+      confidence,
+      metrics,
       title,
       description,
       reason,
-      expected_impact: expectedImpact,
-      confidence_score: this.calculateConfidence(metrics),
-      current_metrics: JSON.stringify(metrics),
-      proposed_changes: JSON.stringify(proposedChanges),
+      expectedImpact,
+      proposedChanges,
+    };
+  }
+
+  private async persistSuggestion(candidate: SuggestionCandidate): Promise<OptimizationSuggestion> {
+    return OptimizationSuggestion.create({
+      id: uuidv4(),
+      organization_id: candidate.adAccount.organization_id,
+      ad_account_id: candidate.adAccount.id,
+      rule_id: candidate.rule.id,
+      entity_type: candidate.entityType,
+      entity_id: candidate.entityId,
+      meta_entity_id: candidate.metaEntityId,
+      suggestion_type: candidate.suggestionType,
+      title: candidate.title,
+      description: candidate.description,
+      reason: candidate.reason,
+      expected_impact: candidate.expectedImpact,
+      confidence_score: candidate.confidence,
+      current_metrics: JSON.stringify(candidate.metrics),
+      proposed_changes: JSON.stringify(candidate.proposedChanges),
       status: 'pending',
       expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
     });
+  }
 
-    pendingSuggestionKeys.add(suggestionKey);
-    return suggestion;
+  private isCandidatePreferred(
+    candidate: SuggestionCandidate,
+    other: SuggestionCandidate
+  ): boolean {
+    if (candidate.rule.priority !== other.rule.priority) {
+      return candidate.rule.priority > other.rule.priority;
+    }
+
+    const candidateRank = this.getSuggestionPriorityRank(candidate.suggestionType);
+    const otherRank = this.getSuggestionPriorityRank(other.suggestionType);
+    if (candidateRank !== otherRank) {
+      return candidateRank > otherRank;
+    }
+
+    return candidate.confidence > other.confidence;
+  }
+
+  private isCandidatePreferredOverExisting(
+    candidate: SuggestionCandidate,
+    existing: ExistingPendingSuggestionMeta
+  ): boolean {
+    if (candidate.rule.priority !== existing.priority) {
+      return candidate.rule.priority > existing.priority;
+    }
+
+    const candidateRank = this.getSuggestionPriorityRank(candidate.suggestionType);
+    const existingRank = this.getSuggestionPriorityRank(existing.suggestionType);
+    if (candidateRank !== existingRank) {
+      return candidateRank > existingRank;
+    }
+
+    return candidate.confidence > existing.confidence;
+  }
+
+  private getBestExistingSuggestion(
+    existingItems: ExistingPendingSuggestionMeta[]
+  ): ExistingPendingSuggestionMeta | null {
+    if (existingItems.length === 0) {
+      return null;
+    }
+
+    return existingItems.reduce((best, current) => {
+      if (!best) {
+        return current;
+      }
+
+      if (current.priority !== best.priority) {
+        return current.priority > best.priority ? current : best;
+      }
+
+      const currentRank = this.getSuggestionPriorityRank(current.suggestionType);
+      const bestRank = this.getSuggestionPriorityRank(best.suggestionType);
+      if (currentRank !== bestRank) {
+        return currentRank > bestRank ? current : best;
+      }
+
+      return current.confidence > best.confidence ? current : best;
+    }, null as ExistingPendingSuggestionMeta | null);
+  }
+
+  private getSuggestionPriorityRank(
+    suggestionType: OptimizationSuggestion['suggestion_type']
+  ): number {
+    if (suggestionType === 'pause') {
+      return 4;
+    }
+    if (suggestionType === 'decrease_budget') {
+      return 3;
+    }
+    if (suggestionType === 'increase_budget') {
+      return 2;
+    }
+    if (suggestionType === 'duplicate') {
+      return 1;
+    }
+    return 0;
+  }
+
+  private normalizeConfidence(value: number | string | null): number {
+    if (typeof value === 'number') {
+      return value;
+    }
+
+    if (typeof value === 'string') {
+      const parsed = Number.parseFloat(value);
+      return Number.isFinite(parsed) ? parsed : 0;
+    }
+
+    return 0;
+  }
+
+  private mapActionToExecutedActionType(
+    actionType: RuleAction['type'],
+    entityType: 'campaign' | 'ad_set' | 'ad'
+  ): ExecutedAction['action_type'] | null {
+    if (actionType === 'pause') {
+      if (entityType === 'campaign') {
+        return 'pause_campaign';
+      }
+      if (entityType === 'ad_set') {
+        return 'pause_adset';
+      }
+      return 'pause_ad';
+    }
+
+    if (actionType === 'duplicate') {
+      return 'duplicate_ad';
+    }
+
+    if (actionType === 'increase_budget') {
+      return 'increase_budget';
+    }
+
+    if (actionType === 'decrease_budget') {
+      return 'decrease_budget';
+    }
+
+    return null;
   }
 
   private generateSuggestionContent(
@@ -234,7 +490,7 @@ export class OptimizationEngine {
 
   private mapActionToSuggestionType(
     actionType: string
-  ): 'pause' | 'duplicate' | 'increase_budget' | 'decrease_budget' | 'modify_targeting' | 'modify_creative' {
+  ): 'pause' | 'duplicate' | 'increase_budget' | 'decrease_budget' {
     if (actionType === 'duplicate') {
       return 'duplicate';
     }
@@ -305,6 +561,38 @@ export class OptimizationEngine {
 
   private calculateMetrics(insights: Insight[]): PerformanceMetrics {
     return calculatePerformanceMetrics(aggregateInsightMetrics(insights));
+  }
+
+  private getGlobalMinImpressions(): number {
+    const parsed = Number.parseInt(process.env.OPTIMIZATION_MIN_IMPRESSIONS || '500', 10);
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      return 500;
+    }
+    return parsed;
+  }
+
+  private getGlobalMinSpend(): number {
+    const parsed = Number.parseFloat(process.env.OPTIMIZATION_MIN_SPEND || '20');
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      return 20;
+    }
+    return parsed;
+  }
+
+  private getMinConfidenceThreshold(): number {
+    const parsed = Number.parseFloat(process.env.OPTIMIZATION_MIN_CONFIDENCE || '0.65');
+    if (!Number.isFinite(parsed) || parsed < 0 || parsed > 1) {
+      return 0.65;
+    }
+    return parsed;
+  }
+
+  private getSuggestionCooldownHours(): number {
+    const parsed = Number.parseInt(process.env.OPTIMIZATION_SUGGESTION_COOLDOWN_HOURS || '24', 10);
+    if (!Number.isFinite(parsed) || parsed < 1) {
+      return 24;
+    }
+    return parsed;
   }
 
   private formatDate(date: Date): string {
