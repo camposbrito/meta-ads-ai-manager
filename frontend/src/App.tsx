@@ -13,6 +13,7 @@ import { TeamPage } from './pages/TeamPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { BillingPage } from './pages/BillingPage';
 import { MetaOAuthCallbackPage } from './pages/MetaOAuthCallbackPage';
+import { ThemeProvider } from './contexts/ThemeContext';
 
 function AppLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -116,11 +117,13 @@ function AppRoutes() {
 
 function App() {
   return (
-    <BrowserRouter>
-      <AuthProvider>
-        <AppRoutes />
-      </AuthProvider>
-    </BrowserRouter>
+    <ThemeProvider>
+      <BrowserRouter>
+        <AuthProvider>
+          <AppRoutes />
+        </AuthProvider>
+      </BrowserRouter>
+    </ThemeProvider>
   );
 }
 

@@ -5,6 +5,7 @@ import { Card } from '../components/Card';
 import { Button } from '../components/Button';
 import { adAccountAPI, integrationAPI, organizationAPI } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
+import { useTheme } from '../contexts/ThemeContext';
 import type { FormEvent } from 'react';
 import type { AdAccount, Ga4Integration, MetaAvailableAdAccount } from '../types';
 
@@ -17,6 +18,7 @@ type SettingsSection = 'general' | 'team' | 'integrations' | 'notifications';
 export function SettingsPage() {
   const [activeSection, setActiveSection] = useState<SettingsSection>('general');
   const { user } = useAuth();
+  const { theme, resolvedTheme, setTheme } = useTheme();
   const [searchParams, setSearchParams] = useSearchParams();
 
   const [organizationName, setOrganizationName] = useState('');
@@ -360,6 +362,19 @@ export function SettingsPage() {
                 onChange={(event) => setContactEmail(event.target.value)}
               />
             </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Tema da Interface</label>
+              <select
+                value={theme}
+                onChange={(event) => setTheme(event.target.value as 'light' | 'dark' | 'system')}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+              >
+                <option value="system">Sistema</option>
+                <option value="light">Claro</option>
+                <option value="dark">Escuro</option>
+              </select>
+              <p className="text-xs text-gray-500 mt-1">Tema ativo: {resolvedTheme === 'dark' ? 'Escuro' : 'Claro'}</p>
+            </div>
             <div className="flex justify-end">
               <Button type="submit" isLoading={saving} disabled={loading}>
                 Salvar Alteracoes
@@ -584,6 +599,28 @@ export function SettingsPage() {
 
             {showGa4Config && (
               <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 space-y-4">
+                <details className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3">
+                  <summary className="cursor-pointer text-sm font-medium text-blue-900">
+                    Guia rápido: como conectar o GA4
+                  </summary>
+                  <div className="mt-3 space-y-2 text-sm text-blue-900">
+                    <p className="font-medium">Checklist de configuração:</p>
+                    <ol className="list-decimal pl-5 space-y-1">
+                      <li>Crie uma Service Account no Google Cloud do projeto do GA4.</li>
+                      <li>No GA4, adicione esse e-mail em "Admin &gt; Property Access Management" com papel Viewer.</li>
+                      <li>Copie o Property ID numérico (ex.: 123456789).</li>
+                      <li>Cole a private key do JSON da Service Account (aceita com \n ou quebra de linha real).</li>
+                      <li>Clique em "Salvar GA4" e depois "Testar".</li>
+                    </ol>
+                    <p className="font-medium pt-1">Erros comuns:</p>
+                    <ul className="list-disc pl-5 space-y-1">
+                      <li>Property ID com prefixo inválido ou não numérico.</li>
+                      <li>E-mail da Service Account sem permissão no GA4.</li>
+                      <li>Private key truncada ou com aspas extras.</li>
+                    </ul>
+                  </div>
+                </details>
+
                 <div className="space-y-2">
                   <label htmlFor="ga4PropertyId" className="block text-sm font-medium text-gray-700">
                     GA4 Property ID
