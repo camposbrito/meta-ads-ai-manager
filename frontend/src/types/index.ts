@@ -88,6 +88,10 @@ export interface OptimizationRule {
   conditions: RuleCondition[];
   actions: RuleAction[];
   priority: number;
+  min_spend_threshold?: number;
+  min_impressions_threshold?: number;
+  evaluation_period_days?: number;
+  created_at?: string;
 }
 
 export interface RuleCondition {

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import type { FormEvent } from 'react';
-import { Lightbulb, Check, X, Play, Settings, TrendingUp } from 'lucide-react';
+import { Lightbulb, Check, X, Play, Settings, TrendingUp, Pencil, Trash2 } from 'lucide-react';
 import { optimizationAPI, adAccountAPI } from '../services/api';
 import { Card } from '../components/Card';
 import { Button } from '../components/Button';
@@ -28,6 +28,18 @@ interface RulePreset {
   title: string;
   description: string;
   form: NewRuleForm;
+}
+
+interface RuleMutationPayload {
+  name: string;
+  description: string | null;
+  rule_type: RuleType;
+  conditions: RuleCondition[];
+  actions: Array<{ type: 'pause' | 'duplicate' | 'increase_budget' | 'decrease_budget'; params?: { percentage: number } }>;
+  priority: number;
+  min_spend_threshold: number;
+  min_impressions_threshold: number;
+  evaluation_period_days: number;
 }
 
 const DEFAULT_NEW_RULE_FORM: NewRuleForm = {
@@ -116,6 +128,134 @@ const RULE_PRESETS: RulePreset[] = [
   },
 ];
 
+const SUPPORTED_CONDITION_OPERATORS: ConditionOperator[] = ['gt', 'gte', 'lt', 'lte', 'eq', 'neq'];
+
+const buildRuleActions = (ruleType: RuleType, budgetPercentage: number) => {
+  if (ruleType === 'pause_ad') {
+    return [{ type: 'pause' as const }];
+  }
+
+  if (ruleType === 'duplicate_ad') {
+    return [{ type: 'duplicate' as const }];
+  }
+
+  if (ruleType === 'increase_budget') {
+    return [{ type: 'increase_budget' as const, params: { percentage: budgetPercentage } }];
+  }
+
+  return [{ type: 'decrease_budget' as const, params: { percentage: budgetPercentage } }];
+};
+
+const conditionValueToText = (value: RuleCondition['value']): string => {
+  if (typeof value === 'number' || typeof value === 'string') {
+    return String(value);
+  }
+
+  if (Array.isArray(value) && value.length > 0) {
+    const firstValue = value[0];
+    if (typeof firstValue === 'number' || typeof firstValue === 'string') {
+      return String(firstValue);
+    }
+  }
+
+  return DEFAULT_NEW_RULE_FORM.conditionValue;
+};
+
+const ruleToForm = (rule: OptimizationRule): NewRuleForm => {
+  const firstCondition = rule.conditions[0];
+  const conditionOperator = SUPPORTED_CONDITION_OPERATORS.includes(firstCondition?.operator as ConditionOperator)
+    ? (firstCondition?.operator as ConditionOperator)
+    : DEFAULT_NEW_RULE_FORM.conditionOperator;
+
+  const budgetAction = rule.actions.find(
+    (action) => action.type === 'increase_budget' || action.type === 'decrease_budget'
+  );
+  const rawBudgetPercentage = budgetAction?.params?.percentage;
+  const budgetPercentage =
+    typeof rawBudgetPercentage === 'number'
+      ? rawBudgetPercentage
+      : typeof rawBudgetPercentage === 'string'
+        ? Number.parseFloat(rawBudgetPercentage)
+        : Number.NaN;
+
+  return {
+    name: rule.name,
+    description: rule.description ?? '',
+    ruleType: rule.rule_type,
+    conditionField: firstCondition?.field ?? DEFAULT_NEW_RULE_FORM.conditionField,
+    conditionOperator,
+    conditionValue: conditionValueToText(firstCondition?.value ?? DEFAULT_NEW_RULE_FORM.conditionValue),
+    minSpendThreshold: String(rule.min_spend_threshold ?? 0),
+    minImpressionsThreshold: String(rule.min_impressions_threshold ?? 0),
+    evaluationPeriodDays: String(rule.evaluation_period_days ?? 7),
+    budgetPercentage: Number.isFinite(budgetPercentage)
+      ? String(Math.round(budgetPercentage))
+      : DEFAULT_NEW_RULE_FORM.budgetPercentage,
+  };
+};
+
+const buildRulePayload = (
+  form: NewRuleForm,
+  priority: number
+): { payload?: RuleMutationPayload; error?: string } => {
+  const name = form.name.trim();
+  if (!name) {
+    return { error: 'Informe um nome para a regra.' };
+  }
+
+  const conditionValue = Number.parseFloat(form.conditionValue);
+  if (!Number.isFinite(conditionValue)) {
+    return { error: 'Informe um valor numérico válido para a condição.' };
+  }
+
+  const minSpendThreshold = Number.parseFloat(form.minSpendThreshold || '0');
+  if (!Number.isFinite(minSpendThreshold) || minSpendThreshold < 0) {
+    return { error: 'Mínimo de gasto inválido.' };
+  }
+
+  const minImpressionsThreshold = Number.parseInt(form.minImpressionsThreshold || '0', 10);
+  if (!Number.isFinite(minImpressionsThreshold) || minImpressionsThreshold < 0) {
+    return { error: 'Mínimo de impressões inválido.' };
+  }
+
+  const evaluationPeriodDays = Number.parseInt(form.evaluationPeriodDays || '7', 10);
+  if (!Number.isFinite(evaluationPeriodDays) || evaluationPeriodDays < 1 || evaluationPeriodDays > 365) {
+    return { error: 'Período de avaliação deve estar entre 1 e 365 dias.' };
+  }
+
+  const parsedBudgetPercentage = Number.parseInt(form.budgetPercentage || DEFAULT_NEW_RULE_FORM.budgetPercentage, 10);
+  if (
+    (form.ruleType === 'increase_budget' || form.ruleType === 'decrease_budget') &&
+    (!Number.isFinite(parsedBudgetPercentage) || parsedBudgetPercentage < 1 || parsedBudgetPercentage > 100)
+  ) {
+    return { error: 'Percentual de orçamento deve estar entre 1 e 100.' };
+  }
+
+  const budgetPercentage = Number.isFinite(parsedBudgetPercentage)
+    ? parsedBudgetPercentage
+    : Number.parseInt(DEFAULT_NEW_RULE_FORM.budgetPercentage, 10);
+
+  return {
+    payload: {
+      name,
+      description: form.description.trim() || null,
+      rule_type: form.ruleType,
+      conditions: [
+        {
+          field: form.conditionField,
+          operator: form.conditionOperator,
+          value: conditionValue,
+        },
+      ],
+      actions: buildRuleActions(form.ruleType, budgetPercentage),
+      priority,
+      min_spend_threshold: minSpendThreshold,
+      min_impressions_threshold: minImpressionsThreshold,
+      evaluation_period_days: evaluationPeriodDays,
+    },
+  };
+};
+
 export function OptimizationPage() {
   const [suggestions, setSuggestions] = useState<OptimizationSuggestion[]>([]);
   const [rules, setRules] = useState<OptimizationRule[]>([]);
@@ -128,10 +268,15 @@ export function OptimizationPage() {
   const [runError, setRunError] = useState<string | null>(null);
 
   const [showCreateRuleModal, setShowCreateRuleModal] = useState(false);
+  const [ruleModalMode, setRuleModalMode] = useState<'create' | 'edit'>('create');
+  const [editingRuleId, setEditingRuleId] = useState<string | null>(null);
   const [newRuleForm, setNewRuleForm] = useState<NewRuleForm>(DEFAULT_NEW_RULE_FORM);
   const [creatingRule, setCreatingRule] = useState(false);
+  const [updatingRule, setUpdatingRule] = useState(false);
+  const [deletingRuleId, setDeletingRuleId] = useState<string | null>(null);
   const [createRuleError, setCreateRuleError] = useState<string | null>(null);
-  const [createRuleSuccess, setCreateRuleSuccess] = useState<string | null>(null);
+  const [ruleActionError, setRuleActionError] = useState<string | null>(null);
+  const [ruleActionSuccess, setRuleActionSuccess] = useState<string | null>(null);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -176,12 +321,19 @@ export function OptimizationPage() {
     }
   };
 
-  const handleToggleRule = async (id: string, isActive: boolean) => {
+  const handleToggleRule = async (id: string, isActive: boolean, ruleName: string) => {
+    setRuleActionError(null);
+    setRuleActionSuccess(null);
     try {
       await optimizationAPI.toggleRule(id, !isActive);
+      setRuleActionSuccess(`Regra "${ruleName}" ${!isActive ? 'ativada' : 'desativada'} com sucesso.`);
       await loadData();
     } catch (error) {
       console.error('Error toggling rule:', error);
+      const errorMessage =
+        (error as { response?: { data?: { error?: string } } }).response?.data?.error ||
+        'Não foi possível alterar o status da regra.';
+      setRuleActionError(errorMessage);
     }
   };
 
@@ -217,9 +369,22 @@ export function OptimizationPage() {
   };
 
   const handleOpenCreateRuleModal = () => {
+    setRuleModalMode('create');
+    setEditingRuleId(null);
     setCreateRuleError(null);
-    setCreateRuleSuccess(null);
+    setRuleActionError(null);
+    setRuleActionSuccess(null);
     setNewRuleForm(DEFAULT_NEW_RULE_FORM);
+    setShowCreateRuleModal(true);
+  };
+
+  const handleOpenEditRuleModal = (rule: OptimizationRule) => {
+    setRuleModalMode('edit');
+    setEditingRuleId(rule.id);
+    setCreateRuleError(null);
+    setRuleActionError(null);
+    setRuleActionSuccess(null);
+    setNewRuleForm(ruleToForm(rule));
     setShowCreateRuleModal(true);
   };
 
@@ -230,6 +395,8 @@ export function OptimizationPage() {
 
   const handleCloseCreateRuleModal = () => {
     setShowCreateRuleModal(false);
+    setRuleModalMode('create');
+    setEditingRuleId(null);
     setCreateRuleError(null);
   };
 
@@ -237,88 +404,26 @@ export function OptimizationPage() {
     setNewRuleForm((prev) => ({ ...prev, [field]: value }));
   };
 
-  const buildRuleActions = (ruleType: RuleType, budgetPercentage: number) => {
-    if (ruleType === 'pause_ad') {
-      return [{ type: 'pause' as const }];
-    }
-
-    if (ruleType === 'duplicate_ad') {
-      return [{ type: 'duplicate' as const }];
-    }
-
-    if (ruleType === 'increase_budget') {
-      return [{ type: 'increase_budget' as const, params: { percentage: budgetPercentage } }];
-    }
-
-    return [{ type: 'decrease_budget' as const, params: { percentage: budgetPercentage } }];
-  };
-
   const handleCreateRule = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setCreateRuleError(null);
-    setCreateRuleSuccess(null);
+    setRuleActionError(null);
+    setRuleActionSuccess(null);
 
-    if (!newRuleForm.name.trim()) {
-      setCreateRuleError('Informe um nome para a regra.');
-      return;
-    }
-
-    const conditionValue = Number.parseFloat(newRuleForm.conditionValue);
-    if (!Number.isFinite(conditionValue)) {
-      setCreateRuleError('Informe um valor numérico válido para a condição.');
-      return;
-    }
-
-    const minSpendThreshold = Number.parseFloat(newRuleForm.minSpendThreshold || '0');
-    const minImpressionsThreshold = Number.parseInt(newRuleForm.minImpressionsThreshold || '0', 10);
-    const evaluationPeriodDays = Number.parseInt(newRuleForm.evaluationPeriodDays || '7', 10);
-    const budgetPercentage = Number.parseInt(newRuleForm.budgetPercentage || '20', 10);
-
-    if (!Number.isFinite(minSpendThreshold) || minSpendThreshold < 0) {
-      setCreateRuleError('Mínimo de gasto inválido.');
-      return;
-    }
-
-    if (!Number.isFinite(minImpressionsThreshold) || minImpressionsThreshold < 0) {
-      setCreateRuleError('Mínimo de impressões inválido.');
-      return;
-    }
-
-    if (!Number.isFinite(evaluationPeriodDays) || evaluationPeriodDays < 1 || evaluationPeriodDays > 365) {
-      setCreateRuleError('Período de avaliação deve estar entre 1 e 365 dias.');
-      return;
-    }
-
-    if (
-      (newRuleForm.ruleType === 'increase_budget' || newRuleForm.ruleType === 'decrease_budget') &&
-      (!Number.isFinite(budgetPercentage) || budgetPercentage < 1 || budgetPercentage > 100)
-    ) {
-      setCreateRuleError('Percentual de orçamento deve estar entre 1 e 100.');
+    const { payload, error } = buildRulePayload(newRuleForm, rules.length);
+    if (!payload) {
+      setCreateRuleError(error ?? 'Dados da regra inválidos.');
       return;
     }
 
     setCreatingRule(true);
     try {
-      await optimizationAPI.createRule({
-        name: newRuleForm.name.trim(),
-        description: newRuleForm.description.trim() || null,
-        rule_type: newRuleForm.ruleType,
-        conditions: [
-          {
-            field: newRuleForm.conditionField,
-            operator: newRuleForm.conditionOperator,
-            value: conditionValue,
-          },
-        ],
-        actions: buildRuleActions(newRuleForm.ruleType, budgetPercentage),
-        priority: rules.length,
-        min_spend_threshold: minSpendThreshold,
-        min_impressions_threshold: minImpressionsThreshold,
-        evaluation_period_days: evaluationPeriodDays,
-      });
+      await optimizationAPI.createRule(payload);
 
-      setCreateRuleSuccess(`Regra "${newRuleForm.name.trim()}" criada com sucesso.`);
+      setRuleActionSuccess(`Regra "${payload.name}" criada com sucesso.`);
       setShowCreateRuleModal(false);
+      setRuleModalMode('create');
+      setEditingRuleId(null);
       setActiveTab('rules');
       await loadData();
     } catch (error) {
@@ -329,6 +434,77 @@ export function OptimizationPage() {
       setCreateRuleError(errorMessage);
     } finally {
       setCreatingRule(false);
+    }
+  };
+
+  const handleUpdateRule = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setCreateRuleError(null);
+    setRuleActionError(null);
+    setRuleActionSuccess(null);
+
+    if (!editingRuleId) {
+      setCreateRuleError('Regra inválida para edição.');
+      return;
+    }
+
+    const currentRule = rules.find((rule) => rule.id === editingRuleId);
+    if (!currentRule) {
+      setCreateRuleError('Regra não encontrada para edição.');
+      return;
+    }
+
+    const { payload, error } = buildRulePayload(newRuleForm, currentRule.priority);
+    if (!payload) {
+      setCreateRuleError(error ?? 'Dados da regra inválidos.');
+      return;
+    }
+
+    setUpdatingRule(true);
+    try {
+      await optimizationAPI.updateRule(editingRuleId, payload);
+      setRuleActionSuccess(`Regra "${payload.name}" atualizada com sucesso.`);
+      setShowCreateRuleModal(false);
+      setRuleModalMode('create');
+      setEditingRuleId(null);
+      setActiveTab('rules');
+      await loadData();
+    } catch (error) {
+      console.error('Error updating rule:', error);
+      const errorMessage =
+        (error as { response?: { data?: { error?: string } } }).response?.data?.error ||
+        'Não foi possível atualizar a regra.';
+      setCreateRuleError(errorMessage);
+    } finally {
+      setUpdatingRule(false);
+    }
+  };
+
+  const handleDeleteRule = async (rule: OptimizationRule) => {
+    setRuleActionError(null);
+    setRuleActionSuccess(null);
+
+    const shouldDelete = window.confirm(
+      `Tem certeza que deseja excluir a regra "${rule.name}"? Essa ação não pode ser desfeita.`
+    );
+
+    if (!shouldDelete) {
+      return;
+    }
+
+    setDeletingRuleId(rule.id);
+    try {
+      await optimizationAPI.deleteRule(rule.id);
+      setRuleActionSuccess(`Regra "${rule.name}" excluída com sucesso.`);
+      await loadData();
+    } catch (error) {
+      console.error('Error deleting rule:', error);
+      const errorMessage =
+        (error as { response?: { data?: { error?: string } } }).response?.data?.error ||
+        'Não foi possível excluir a regra.';
+      setRuleActionError(errorMessage);
+    } finally {
+      setDeletingRuleId(null);
     }
   };
 
@@ -406,9 +582,15 @@ export function OptimizationPage() {
         </div>
       )}
 
-      {createRuleSuccess && (
+      {ruleActionSuccess && (
         <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
-          {createRuleSuccess}
+          {ruleActionSuccess}
+        </div>
+      )}
+
+      {ruleActionError && (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {ruleActionError}
         </div>
       )}
 
@@ -530,18 +712,36 @@ export function OptimizationPage() {
                       </div>
                       {rule.description && <p className="text-sm text-gray-500 mt-1">{rule.description}</p>}
                     </div>
-                    <button
-                      onClick={() => handleToggleRule(rule.id, rule.is_active)}
-                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                        rule.is_active ? 'bg-blue-600' : 'bg-gray-200'
-                      }`}
-                    >
-                      <span
-                        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                          rule.is_active ? 'translate-x-6' : 'translate-x-1'
+                    <div className="flex items-center gap-2">
+                      <Button type="button" size="sm" variant="ghost" onClick={() => handleOpenEditRuleModal(rule)}>
+                        <Pencil className="h-4 w-4 mr-1" />
+                        Editar
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        className="text-red-600 hover:bg-red-50 focus:ring-red-500"
+                        onClick={() => handleDeleteRule(rule)}
+                        isLoading={deletingRuleId === rule.id}
+                      >
+                        <Trash2 className="h-4 w-4 mr-1" />
+                        Excluir
+                      </Button>
+                      <button
+                        onClick={() => handleToggleRule(rule.id, rule.is_active, rule.name)}
+                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                          rule.is_active ? 'bg-blue-600' : 'bg-gray-200'
                         }`}
-                      />
-                    </button>
+                        disabled={deletingRuleId === rule.id}
+                      >
+                        <span
+                          className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                            rule.is_active ? 'translate-x-6' : 'translate-x-1'
+                          }`}
+                        />
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -555,8 +755,14 @@ export function OptimizationPage() {
           <div className="w-full max-w-3xl rounded-xl border border-gray-200 bg-white shadow-lg max-h-[92vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
               <div>
-                <h3 className="text-lg font-semibold text-gray-900">Nova Regra de Otimização</h3>
-                <p className="text-sm text-gray-500">Use um preset sugerido ou configure manualmente.</p>
+                <h3 className="text-lg font-semibold text-gray-900">
+                  {ruleModalMode === 'create' ? 'Nova Regra de Otimização' : 'Editar Regra de Otimização'}
+                </h3>
+                <p className="text-sm text-gray-500">
+                  {ruleModalMode === 'create'
+                    ? 'Use um preset sugerido ou configure manualmente.'
+                    : 'Atualize os parâmetros da regra selecionada.'}
+                </p>
               </div>
               <Button variant="ghost" onClick={handleCloseCreateRuleModal}>
                 Fechar
@@ -564,22 +770,24 @@ export function OptimizationPage() {
             </div>
 
             <div className="space-y-4 px-6 py-4">
-              <div>
-                <p className="text-sm font-medium text-gray-700 mb-2">Sugestões de regras</p>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                  {RULE_PRESETS.map((preset) => (
-                    <button
-                      key={preset.id}
-                      type="button"
-                      onClick={() => handleApplyPreset(preset)}
-                      className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-3 text-left hover:bg-gray-100 transition-colors"
-                    >
-                      <p className="text-sm font-medium text-gray-900">{preset.title}</p>
-                      <p className="text-xs text-gray-600 mt-1">{preset.description}</p>
-                    </button>
-                  ))}
+              {ruleModalMode === 'create' && (
+                <div>
+                  <p className="text-sm font-medium text-gray-700 mb-2">Sugestões de regras</p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                    {RULE_PRESETS.map((preset) => (
+                      <button
+                        key={preset.id}
+                        type="button"
+                        onClick={() => handleApplyPreset(preset)}
+                        className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-3 text-left hover:bg-gray-100 transition-colors"
+                      >
+                        <p className="text-sm font-medium text-gray-900">{preset.title}</p>
+                        <p className="text-xs text-gray-600 mt-1">{preset.description}</p>
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              </div>
+              )}
 
               {createRuleError && (
                 <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
@@ -587,7 +795,10 @@ export function OptimizationPage() {
                 </div>
               )}
 
-              <form className="space-y-4" onSubmit={handleCreateRule}>
+              <form
+                className="space-y-4"
+                onSubmit={ruleModalMode === 'create' ? handleCreateRule : handleUpdateRule}
+              >
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="md:col-span-2">
                     <label className="block text-sm font-medium text-gray-700 mb-1">Nome da Regra</label>
@@ -732,8 +943,8 @@ export function OptimizationPage() {
                   <Button type="button" variant="secondary" onClick={handleCloseCreateRuleModal}>
                     Cancelar
                   </Button>
-                  <Button type="submit" isLoading={creatingRule}>
-                    Criar Regra
+                  <Button type="submit" isLoading={ruleModalMode === 'create' ? creatingRule : updatingRule}>
+                    {ruleModalMode === 'create' ? 'Criar Regra' : 'Salvar Alterações'}
                   </Button>
                 </div>
               </form>
