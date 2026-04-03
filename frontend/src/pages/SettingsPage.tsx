@@ -6,8 +6,9 @@ import { Button } from '../components/Button';
 import { adAccountAPI, integrationAPI, organizationAPI } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
+import { useI18n } from '../contexts/I18nContext';
 import type { FormEvent } from 'react';
-import type { AdAccount, Ga4Integration, MetaAvailableAdAccount } from '../types';
+import type { AdAccount, Ga4Integration, MetaAvailableAdAccount, TeamMember } from '../types';
 
 const META_OAUTH_STATE_KEY = 'meta_oauth_state';
 const META_OAUTH_TOKEN_KEY = 'meta_oauth_access_token';
@@ -19,6 +20,7 @@ export function SettingsPage() {
   const [activeSection, setActiveSection] = useState<SettingsSection>('general');
   const { user } = useAuth();
   const { theme, resolvedTheme, setTheme } = useTheme();
+  const { language, setLanguage, t } = useI18n();
   const [searchParams, setSearchParams] = useSearchParams();
 
   const [organizationName, setOrganizationName] = useState('');
@@ -26,6 +28,17 @@ export function SettingsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState('');
+  const [members, setMembers] = useState<TeamMember[]>([]);
+  const [loadingMembers, setLoadingMembers] = useState(true);
+  const [showInviteModal, setShowInviteModal] = useState(false);
+  const [isInvitingMember, setIsInvitingMember] = useState(false);
+  const [invitationError, setInvitationError] = useState('');
+  const [temporaryPassword, setTemporaryPassword] = useState('');
+  const [inviteData, setInviteData] = useState({
+    name: '',
+    email: '',
+    role: 'member' as 'admin' | 'member',
+  });
 
   const [adAccounts, setAdAccounts] = useState<AdAccount[]>([]);
   const [loadingIntegrations, setLoadingIntegrations] = useState(true);
@@ -84,6 +97,18 @@ export function SettingsPage() {
     }
   };
 
+  const loadMembers = async () => {
+    setLoadingMembers(true);
+    try {
+      const response = await organizationAPI.getMembers();
+      setMembers(response.data.members);
+    } catch (error) {
+      console.error('Error loading members:', error);
+    } finally {
+      setLoadingMembers(false);
+    }
+  };
+
   useEffect(() => {
     const loadOrganization = async () => {
       try {
@@ -99,6 +124,7 @@ export function SettingsPage() {
     setContactEmail(user?.email || '');
     void loadOrganization();
     void loadIntegrations();
+    void loadMembers();
   }, [user?.email]);
 
   useEffect(() => {
@@ -309,9 +335,51 @@ export function SettingsPage() {
     }
   };
 
+  const resetInviteState = () => {
+    setInviteData({ name: '', email: '', role: 'member' });
+    setInvitationError('');
+    setTemporaryPassword('');
+  };
+
+  const handleInviteMember = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setInvitationError('');
+    setTemporaryPassword('');
+    setIsInvitingMember(true);
+
+    try {
+      const response = await organizationAPI.addMember(inviteData);
+      setTemporaryPassword(response.data.temporary_password || '');
+      await loadMembers();
+    } catch (error) {
+      const errorMessage =
+        (error as { response?: { data?: { error?: string } } }).response?.data?.error ||
+        'Nao foi possivel convidar o membro.';
+      setInvitationError(errorMessage);
+    } finally {
+      setIsInvitingMember(false);
+    }
+  };
+
+  const handleRemoveMember = async (memberId: string) => {
+    if (!window.confirm('Deseja remover este membro da equipe?')) {
+      return;
+    }
+
+    try {
+      await organizationAPI.removeMember(memberId);
+      await loadMembers();
+    } catch (error) {
+      const errorMessage =
+        (error as { response?: { data?: { error?: string } } }).response?.data?.error ||
+        'Nao foi possivel remover o membro.';
+      setInvitationError(errorMessage);
+    }
+  };
+
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-gray-900">Configuracoes</h1>
+      <h1 className="text-2xl font-bold text-gray-900">{t('settings.title', 'Configurações')}</h1>
 
       <div className="flex space-x-4 border-b border-gray-200">
         {(['general', 'team', 'integrations', 'notifications'] as SettingsSection[]).map((section) => (
@@ -325,12 +393,12 @@ export function SettingsPage() {
             }`}
           >
             {section === 'general'
-              ? 'Geral'
+              ? t('settings.general', 'Geral')
               : section === 'team'
-                ? 'Equipe'
+                ? t('settings.team', 'Equipe')
                 : section === 'integrations'
-                  ? 'Integracoes'
-                  : 'Notificacoes'}
+                  ? t('settings.integrations', 'Integrações')
+                  : t('settings.notifications', 'Notificações')}
           </button>
         ))}
       </div>
@@ -375,6 +443,23 @@ export function SettingsPage() {
               </select>
               <p className="text-xs text-gray-500 mt-1">Tema ativo: {resolvedTheme === 'dark' ? 'Escuro' : 'Claro'}</p>
             </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                {t('settings.language', 'Idioma do Site')}
+              </label>
+              <select
+                value={language}
+                onChange={(event) => setLanguage(event.target.value as 'pt' | 'en' | 'es')}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+              >
+                <option value="pt">{t('language.pt', 'Português')}</option>
+                <option value="en">{t('language.en', 'English')}</option>
+                <option value="es">{t('language.es', 'Español')}</option>
+              </select>
+              <p className="text-xs text-gray-500 mt-1">
+                {t('settings.language.active', 'Idioma ativo')}: {t(`language.${language}`, language)}
+              </p>
+            </div>
             <div className="flex justify-end">
               <Button type="submit" isLoading={saving} disabled={loading}>
                 Salvar Alteracoes
@@ -388,36 +473,128 @@ export function SettingsPage() {
         <Card
           title="Membros da Equipe"
           action={
-            <Button size="sm">
+            <Button
+              size="sm"
+              onClick={() => {
+                resetInviteState();
+                setShowInviteModal(true);
+              }}
+            >
               <Plus className="h-4 w-4 mr-2" />
               Convidar
             </Button>
           }
         >
-          <div className="space-y-4">
-            {[
-              { name: 'Joao Silva', email: 'joao@empresa.com', role: 'Admin' },
-              { name: 'Maria Santos', email: 'maria@empresa.com', role: 'Membro' },
-            ].map((member, index) => (
-              <div key={index} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
-                <div>
-                  <p className="font-medium text-gray-900">{member.name}</p>
-                  <p className="text-sm text-gray-500">{member.email}</p>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <span className="px-3 py-1 text-xs font-medium bg-blue-100 text-blue-700 rounded-full">
-                    {member.role}
-                  </span>
-                  {index > 0 && (
-                    <button className="p-2 text-red-600 hover:bg-red-50 rounded-lg">
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
+          {loadingMembers ? (
+            <div className="text-sm text-gray-500">Carregando membros...</div>
+          ) : (
+            <div className="space-y-4">
+              {members.length === 0 ? (
+                <div className="text-sm text-gray-500">Nenhum membro ativo.</div>
+              ) : (
+                members.map((member) => (
+                  <div key={member.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                    <div>
+                      <p className="font-medium text-gray-900">{member.name}</p>
+                      <p className="text-sm text-gray-500">{member.email}</p>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <span className="px-3 py-1 text-xs font-medium bg-blue-100 text-blue-700 rounded-full">
+                        {member.role === 'admin' ? 'Admin' : 'Membro'}
+                      </span>
+                      {member.id !== user?.id && (
+                        <button
+                          className="p-2 text-red-600 hover:bg-red-50 rounded-lg"
+                          onClick={() => void handleRemoveMember(member.id)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
         </Card>
+      )}
+
+      {showInviteModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full mx-4">
+            <div className="p-6">
+              <h2 className="text-xl font-bold text-gray-900 mb-4">Convidar Membro</h2>
+              <form id="settings-invite-member-form" className="space-y-4" onSubmit={handleInviteMember}>
+                {invitationError && (
+                  <div className="bg-red-50 border border-red-200 text-red-600 px-3 py-2 rounded-lg text-sm">
+                    {invitationError}
+                  </div>
+                )}
+
+                {temporaryPassword && (
+                  <div className="bg-green-50 border border-green-200 text-green-700 px-3 py-2 rounded-lg text-sm">
+                    Usuário criado. Senha temporária: <strong>{temporaryPassword}</strong>
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Nome</label>
+                  <input
+                    type="text"
+                    value={inviteData.name}
+                    onChange={(event) =>
+                      setInviteData((prev) => ({ ...prev, name: event.target.value }))
+                    }
+                    required
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                  <input
+                    type="email"
+                    value={inviteData.email}
+                    onChange={(event) =>
+                      setInviteData((prev) => ({ ...prev, email: event.target.value }))
+                    }
+                    required
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Cargo</label>
+                  <select
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    value={inviteData.role}
+                    onChange={(event) =>
+                      setInviteData((prev) => ({
+                        ...prev,
+                        role: event.target.value as 'admin' | 'member',
+                      }))
+                    }
+                  >
+                    <option value="member">Membro</option>
+                    <option value="admin">Admin</option>
+                  </select>
+                </div>
+              </form>
+            </div>
+            <div className="flex justify-end space-x-3 px-6 py-4 bg-gray-50 rounded-b-xl">
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setShowInviteModal(false);
+                  resetInviteState();
+                }}
+              >
+                Cancelar
+              </Button>
+              <Button type="submit" form="settings-invite-member-form" isLoading={isInvitingMember}>
+                Criar Membro
+              </Button>
+            </div>
+          </div>
+        </div>
       )}
 
       {activeSection === 'integrations' && (

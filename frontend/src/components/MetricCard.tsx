@@ -15,19 +15,19 @@ export function MetricCard({ title, value, change, icon, onClick, actionLabel }:
     <button
       type="button"
       onClick={onClick}
-      className={`w-full text-left bg-white rounded-xl shadow-sm border border-gray-200 p-6 ${
-        isInteractive ? 'hover:border-blue-300 hover:shadow-md transition-all cursor-pointer' : ''
+      className={`w-full text-left bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-gray-200 dark:border-slate-700 p-6 ${
+        isInteractive ? 'hover:border-blue-300 dark:hover:border-blue-500 hover:shadow-md transition-all cursor-pointer' : ''
       }`}
       disabled={!isInteractive}
     >
       <div className="flex items-center justify-between">
         <div>
-          <p className="text-sm font-medium text-gray-600">{title}</p>
-          <p className="mt-2 text-3xl font-bold text-gray-900">{value}</p>
+          <p className="text-sm font-medium text-gray-600 dark:text-gray-400">{title}</p>
+          <p className="mt-2 text-3xl font-bold text-gray-900 dark:text-gray-100">{value}</p>
           {isInteractive && actionLabel && <p className="mt-1 text-xs text-blue-600">{actionLabel}</p>}
         </div>
         {icon && (
-          <div className="p-3 bg-blue-50 rounded-lg text-blue-600">
+          <div className="p-3 bg-blue-50 dark:bg-slate-800 rounded-lg text-blue-600 dark:text-blue-400">
             {icon}
           </div>
         )}

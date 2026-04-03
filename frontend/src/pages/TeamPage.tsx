@@ -5,8 +5,10 @@ import { Card } from '../components/Card';
 import { Button } from '../components/Button';
 import type { TeamMember } from '../types';
 import type { FormEvent } from 'react';
+import { useI18n } from '../contexts/I18nContext';
 
 export function TeamPage() {
+  const { t } = useI18n();
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [loading, setLoading] = useState(true);
   const [showInviteModal, setShowInviteModal] = useState(false);
@@ -73,7 +75,7 @@ export function TeamPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900">Equipe</h1>
+        <h1 className="text-2xl font-bold text-gray-900">{t('team.title', 'Equipe')}</h1>
         <Button
           onClick={() => {
             resetInviteForm();

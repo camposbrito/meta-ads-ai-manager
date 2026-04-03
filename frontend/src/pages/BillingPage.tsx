@@ -4,11 +4,14 @@ import { Check } from 'lucide-react';
 import { billingAPI } from '../services/api';
 import { Card } from '../components/Card';
 import { Button } from '../components/Button';
-import type { BillingSubscription, Plan } from '../types';
+import type { BillingSubscription, BillingSupportOptions, Plan } from '../types';
+import { useI18n } from '../contexts/I18nContext';
 
 export function BillingPage() {
+  const { t } = useI18n();
   const [plans, setPlans] = useState<Plan[]>([]);
   const [currentPlan, setCurrentPlan] = useState<BillingSubscription | null>(null);
+  const [supportOptions, setSupportOptions] = useState<BillingSupportOptions | null>(null);
   const [loading, setLoading] = useState(true);
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'yearly'>('monthly');
   const [upgradingPlanId, setUpgradingPlanId] = useState<string | null>(null);
@@ -38,12 +41,14 @@ export function BillingPage() {
 
   const loadData = async () => {
     try {
-      const [plansRes, subscriptionRes] = await Promise.all([
+      const [plansRes, subscriptionRes, supportRes] = await Promise.all([
         billingAPI.getPlans(),
         billingAPI.getSubscription(),
+        billingAPI.getSupportOptions(),
       ]);
       setPlans(plansRes.data.plans);
       setCurrentPlan(subscriptionRes.data.plan);
+      setSupportOptions(supportRes.data.support);
     } catch (error) {
       console.error('Error loading billing data:', error);
     } finally {
@@ -104,7 +109,7 @@ export function BillingPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900">Planos e Preços</h1>
+        <h1 className="text-2xl font-bold text-gray-900">{t('billing.title', 'Planos e Preços')}</h1>
         
         {/* Billing Cycle Toggle */}
         <div className="flex items-center space-x-2 bg-gray-100 rounded-lg p-1">
@@ -184,6 +189,29 @@ export function BillingPage() {
               </Button>
             </div>
           )}
+        </Card>
+      )}
+
+      {supportOptions && (
+        <Card title="Suporte do Plano" description={`Nível atual: ${supportOptions.support_level}`}>
+          <div className="space-y-2">
+            {supportOptions.channels.map((channel) => (
+              <div
+                key={channel.channel}
+                className="flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50 px-3 py-2"
+              >
+                <span className="text-sm text-gray-700">{channel.label}</span>
+                <a
+                  href={channel.value}
+                  target={channel.value.startsWith('http') ? '_blank' : undefined}
+                  rel={channel.value.startsWith('http') ? 'noreferrer' : undefined}
+                  className="text-sm text-blue-600 hover:underline"
+                >
+                  {channel.value}
+                </a>
+              </div>
+            ))}
+          </div>
         </Card>
       )}
 

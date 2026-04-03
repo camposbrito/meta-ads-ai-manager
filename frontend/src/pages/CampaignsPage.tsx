@@ -5,8 +5,10 @@ import { dashboardAPI } from '../services/api';
 import { Card } from '../components/Card';
 import { Button } from '../components/Button';
 import type { Ad, Campaign } from '../types';
+import { useI18n } from '../contexts/I18nContext';
 
 export function CampaignsPage() {
+  const { t } = useI18n();
   const [searchParams, setSearchParams] = useSearchParams();
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [loading, setLoading] = useState(true);
@@ -301,7 +303,7 @@ export function CampaignsPage() {
         </div>
       )}
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900">Campanhas</h1>
+        <h1 className="text-2xl font-bold text-gray-900">{t('campaigns.title', 'Campanhas')}</h1>
 
         <div className="flex items-center gap-2">
           <select

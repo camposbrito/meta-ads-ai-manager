@@ -12,6 +12,7 @@ import {
 } from 'recharts';
 import { DollarSign, Eye, MousePointer, Target, TrendingUp, Users } from 'lucide-react';
 import { dashboardAPI, adAccountAPI } from '../services/api';
+import { useI18n } from '../contexts/I18nContext';
 import { Card } from '../components/Card';
 import { MetricCard } from '../components/MetricCard';
 import { Button } from '../components/Button';
@@ -56,6 +57,7 @@ const META_OAUTH_RETURN_PATH_KEY = 'meta_oauth_return_path';
 
 export function DashboardPage() {
   const navigate = useNavigate();
+  const { t } = useI18n();
 
   const [loading, setLoading] = useState(true);
   const [overview, setOverview] = useState<Overview | null>(null);
@@ -294,7 +296,7 @@ export function DashboardPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
+        <h1 className="text-2xl font-bold text-gray-900">{t('dashboard.title', 'Dashboard')}</h1>
         <div className="flex items-center space-x-2">
           {overviewMeta && (
             <>

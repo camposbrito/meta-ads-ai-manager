@@ -14,10 +14,11 @@ import { SettingsPage } from './pages/SettingsPage';
 import { BillingPage } from './pages/BillingPage';
 import { MetaOAuthCallbackPage } from './pages/MetaOAuthCallbackPage';
 import { ThemeProvider } from './contexts/ThemeContext';
+import { I18nProvider } from './contexts/I18nContext';
 
 function AppLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 dark:bg-slate-950">
       <Sidebar />
       <main className="lg:ml-64 p-6 lg:p-8">
         <div className="max-w-7xl mx-auto">{children}</div>
@@ -118,11 +119,13 @@ function AppRoutes() {
 function App() {
   return (
     <ThemeProvider>
-      <BrowserRouter>
-        <AuthProvider>
-          <AppRoutes />
-        </AuthProvider>
-      </BrowserRouter>
+      <I18nProvider>
+        <BrowserRouter>
+          <AuthProvider>
+            <AppRoutes />
+          </AuthProvider>
+        </BrowserRouter>
+      </I18nProvider>
     </ThemeProvider>
   );
 }

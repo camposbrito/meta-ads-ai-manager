@@ -5,6 +5,7 @@ import { optimizationAPI, adAccountAPI } from '../services/api';
 import { Card } from '../components/Card';
 import { Button } from '../components/Button';
 import type { AdAccount, OptimizationSuggestion, OptimizationRule, RuleCondition } from '../types';
+import { useI18n } from '../contexts/I18nContext';
 
 type RuleType = OptimizationRule['rule_type'];
 type ConditionField = RuleCondition['field'];
@@ -257,6 +258,7 @@ const buildRulePayload = (
 };
 
 export function OptimizationPage() {
+  const { t } = useI18n();
   const [suggestions, setSuggestions] = useState<OptimizationSuggestion[]>([]);
   const [rules, setRules] = useState<OptimizationRule[]>([]);
   const [adAccounts, setAdAccounts] = useState<AdAccount[]>([]);
@@ -549,7 +551,7 @@ export function OptimizationPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900">Otimização</h1>
+        <h1 className="text-2xl font-bold text-gray-900">{t('optimization.title', 'Otimização')}</h1>
         <div className="flex items-center gap-2">
           <select
             value={selectedAccountId}

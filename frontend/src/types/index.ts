@@ -8,6 +8,10 @@ export interface User {
     id: string;
     name: string;
     plan: 'free' | 'pro' | 'agency';
+    max_ad_accounts?: number;
+    max_daily_syncs?: number;
+    subscription_status?: string | null;
+    subscription_ends_at?: string | null;
   };
 }
 
@@ -170,6 +174,15 @@ export interface BillingSubscription {
     daily_syncs: number;
     users?: number;
   };
+}
+
+export interface BillingSupportOptions {
+  support_level: 'community' | 'email' | 'priority';
+  channels: Array<{
+    channel: string;
+    label: string;
+    value: string;
+  }>;
 }
 
 export interface Ga4Integration {

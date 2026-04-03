@@ -4,6 +4,7 @@ import type {
   AdAccount,
   AuthTokens,
   BillingSubscription,
+  BillingSupportOptions,
   Campaign,
   Insight,
   Ga4Integration,
@@ -160,6 +161,7 @@ export const optimizationAPI = {
 export const billingAPI = {
   getPlans: () => api.get<{ plans: Plan[] }>('/billing/plans'),
   getSubscription: () => api.get<{ plan: BillingSubscription }>('/billing/subscription'),
+  getSupportOptions: () => api.get<{ support: BillingSupportOptions }>('/billing/support-options'),
   upgrade: (plan: string, billing_cycle?: string) =>
     api.post<{ message: string; plan?: string; checkout_url?: string; session_id?: string }>(
       '/billing/upgrade',

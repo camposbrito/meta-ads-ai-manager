@@ -28,6 +28,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         try {
           const response = await authAPI.me();
           setUser(response.data.user);
+          if (response.data.user.organization) {
+            setOrganization({
+              id: response.data.user.organization.id,
+              name: response.data.user.organization.name,
+              slug: '',
+              plan: response.data.user.organization.plan,
+              max_ad_accounts: response.data.user.organization.max_ad_accounts || 0,
+              max_daily_syncs: response.data.user.organization.max_daily_syncs || 0,
+              subscription_status: response.data.user.organization.subscription_status || null,
+              subscription_ends_at: response.data.user.organization.subscription_ends_at || null,
+            });
+          }
         } catch {
           localStorage.removeItem('accessToken');
           localStorage.removeItem('refreshToken');
@@ -47,6 +59,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.setItem('refreshToken', tokens.refreshToken);
 
     setUser(user);
+    if (user.organization) {
+      setOrganization({
+        id: user.organization.id,
+        name: user.organization.name,
+        slug: '',
+        plan: user.organization.plan,
+        max_ad_accounts: 0,
+        max_daily_syncs: 0,
+      });
+    }
   };
 
   const register = async (email: string, password: string, name: string, organizationName: string) => {
@@ -57,6 +79,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.setItem('refreshToken', tokens.refreshToken);
 
     setUser(user);
+    if (user.organization) {
+      setOrganization({
+        id: user.organization.id,
+        name: user.organization.name,
+        slug: '',
+        plan: user.organization.plan,
+        max_ad_accounts: 0,
+        max_daily_syncs: 0,
+      });
+    }
   };
 
   const logout = () => {
