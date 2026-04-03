@@ -1,8 +1,6 @@
-import dotenv from 'dotenv';
+import { AUTH_ENV } from '../config/env';
 
-dotenv.config();
-
-const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || 'default-key-change-in-production';
+const ENCRYPTION_KEY = AUTH_ENV.encryptionKey;
 const CryptoJS: any = require('crypto-js');
 
 export function encrypt(text: string): string {

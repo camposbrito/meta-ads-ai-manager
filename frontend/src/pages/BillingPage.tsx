@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Check } from 'lucide-react';
 import { billingAPI } from '../services/api';
 import { Card } from '../components/Card';
@@ -11,10 +12,28 @@ export function BillingPage() {
   const [loading, setLoading] = useState(true);
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'yearly'>('monthly');
   const [upgradingPlanId, setUpgradingPlanId] = useState<string | null>(null);
+  const [checkoutMessage, setCheckoutMessage] = useState<string | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
 
   useEffect(() => {
     loadData();
   }, []);
+
+  useEffect(() => {
+    const checkoutStatus = searchParams.get('checkout');
+    if (!checkoutStatus) {
+      return;
+    }
+
+    if (checkoutStatus === 'success') {
+      setCheckoutMessage('Pagamento confirmado. Atualizando sua assinatura...');
+      void loadData();
+    } else if (checkoutStatus === 'cancel') {
+      setCheckoutMessage('Checkout cancelado. Nenhuma alteracao foi aplicada.');
+    }
+
+    setSearchParams({}, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   const loadData = async () => {
     try {
@@ -87,6 +106,12 @@ export function BillingPage() {
           </button>
         </div>
       </div>
+
+      {checkoutMessage && (
+        <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-700">
+          {checkoutMessage}
+        </div>
+      )}
 
       {/* Current Plan */}
       {currentPlan && (

@@ -1,7 +1,5 @@
-import dotenv from 'dotenv';
+import './config/env';
 import scheduledJobs from './jobs/scheduledJobs';
-
-dotenv.config();
 
 console.log('Starting worker process...');
 

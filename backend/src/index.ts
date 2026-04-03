@@ -2,12 +2,13 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
+import './config/env';
 import dotenv from 'dotenv';
 
 import routes from './routes';
 import { notFound, errorHandler } from './middleware/errorHandler';
 import sequelize from './config/database';
-import billingController from './controllers/BillingController';
+import stripeRoutes from './routes/stripe';
 
 dotenv.config();
 
@@ -33,12 +34,9 @@ const limiter = rateLimit({
 });
 app.use('/api', limiter);
 
-// Stripe webhook must use raw body for signature verification
-app.post(
-  '/api/billing/webhook',
-  express.raw({ type: 'application/json' }),
-  billingController.handleStripeWebhook.bind(billingController)
-);
+// Stripe webhook routes must use raw body for signature verification.
+app.use('/api/stripe', stripeRoutes);
+app.use('/api/billing', stripeRoutes);
 
 // Body parsing middleware
 app.use(express.json({ limit: '10mb' }));

@@ -160,6 +160,14 @@ export class BillingController {
         session_id: checkout.id,
       });
     } catch (error) {
+      if (error instanceof AppError) {
+        res.status(error.statusCode).json({
+          error: error.message,
+          ...(error.details !== undefined ? { details: error.details } : {}),
+        });
+        return;
+      }
+
       if (error instanceof Error) {
         res.status(400).json({ error: error.message });
         return;
@@ -187,6 +195,14 @@ export class BillingController {
         subscription_ends_at: organization.subscription_ends_at,
       });
     } catch (error) {
+      if (error instanceof AppError) {
+        res.status(error.statusCode).json({
+          error: error.message,
+          ...(error.details !== undefined ? { details: error.details } : {}),
+        });
+        return;
+      }
+
       if (error instanceof Error) {
         res.status(400).json({ error: error.message });
         return;
@@ -209,6 +225,14 @@ export class BillingController {
       await billingService.handleStripeWebhook(req.body, signature);
       res.json({ received: true });
     } catch (error) {
+      if (error instanceof AppError) {
+        res.status(error.statusCode).json({
+          error: error.message,
+          ...(error.details !== undefined ? { details: error.details } : {}),
+        });
+        return;
+      }
+
       if (error instanceof Error) {
         res.status(400).json({ error: error.message });
         return;

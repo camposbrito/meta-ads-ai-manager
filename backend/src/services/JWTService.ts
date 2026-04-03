@@ -1,18 +1,23 @@
 import jwt from 'jsonwebtoken';
-import type { SignOptions } from 'jsonwebtoken';
-import dotenv from 'dotenv';
+import { AUTH_ENV } from '../config/env';
 
-dotenv.config();
-
-const JWT_SECRET = process.env.JWT_SECRET || 'default-jwt-secret-change-in-production';
-const JWT_EXPIRES_IN = (process.env.JWT_EXPIRES_IN || '15m') as SignOptions['expiresIn'];
-const REFRESH_TOKEN_EXPIRES_IN = (process.env.REFRESH_TOKEN_EXPIRES_IN || '7d') as SignOptions['expiresIn'];
+const JWT_SECRET = AUTH_ENV.jwtSecret;
+const JWT_EXPIRES_IN = AUTH_ENV.jwtExpiresIn;
+const REFRESH_TOKEN_EXPIRES_IN = AUTH_ENV.refreshTokenExpiresIn;
+const PASSWORD_RESET_SECRET = AUTH_ENV.passwordResetSecret;
+const PASSWORD_RESET_EXPIRES_IN = AUTH_ENV.passwordResetExpiresIn;
 
 export interface JWTPayload {
   userId: string;
   organizationId: string;
   email: string;
   role: string;
+}
+
+export interface PasswordResetTokenPayload {
+  userId: string;
+  email: string;
+  passwordHashDigest: string;
 }
 
 export function generateAccessToken(payload: JWTPayload): string {
@@ -25,6 +30,14 @@ export function generateRefreshToken(payload: JWTPayload): string {
 
 export function verifyToken(token: string): JWTPayload {
   return jwt.verify(token, JWT_SECRET) as JWTPayload;
+}
+
+export function generatePasswordResetToken(payload: PasswordResetTokenPayload): string {
+  return jwt.sign(payload, PASSWORD_RESET_SECRET, { expiresIn: PASSWORD_RESET_EXPIRES_IN });
+}
+
+export function verifyPasswordResetToken(token: string): PasswordResetTokenPayload {
+  return jwt.verify(token, PASSWORD_RESET_SECRET) as PasswordResetTokenPayload;
 }
 
 export function decodeToken(token: string): JWTPayload | null {
