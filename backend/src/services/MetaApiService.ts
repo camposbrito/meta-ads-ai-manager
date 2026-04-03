@@ -112,6 +112,25 @@ export interface MetaInsight {
   frequency: number;
 }
 
+interface MetaActionMetric {
+  action_type?: string;
+  value?: string | number;
+}
+
+interface RawMetaInsight {
+  date_start?: string;
+  impressions?: string | number;
+  reach?: string | number;
+  clicks?: string | number;
+  ctr?: string | number;
+  cpc?: string | number;
+  cpm?: string | number;
+  spend?: string | number;
+  frequency?: string | number;
+  actions?: MetaActionMetric[];
+  action_values?: MetaActionMetric[];
+}
+
 interface MetaApiResponse<T> {
   data: T;
 }
@@ -192,6 +211,76 @@ export class MetaApiService {
     }
   }
 
+  private parseMetric(value: unknown): number {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return value;
+    }
+
+    if (typeof value === 'string') {
+      const parsed = Number.parseFloat(value);
+      return Number.isFinite(parsed) ? parsed : 0;
+    }
+
+    return 0;
+  }
+
+  private isConversionAction(actionType: string): boolean {
+    const normalized = actionType.toLowerCase();
+
+    return (
+      normalized.startsWith('offsite_conversion') ||
+      normalized.startsWith('onsite_conversion') ||
+      normalized.startsWith('omni_') ||
+      normalized.includes('conversion') ||
+      normalized.includes('purchase') ||
+      normalized.includes('lead') ||
+      normalized.includes('complete_registration') ||
+      normalized.includes('subscribe') ||
+      normalized.includes('add_to_cart') ||
+      normalized.includes('initiate_checkout') ||
+      normalized.includes('contact') ||
+      normalized.includes('view_content')
+    );
+  }
+
+  private sumConversionMetrics(metrics: unknown): number {
+    if (!Array.isArray(metrics)) {
+      return 0;
+    }
+
+    let total = 0;
+
+    for (const metric of metrics as MetaActionMetric[]) {
+      const actionType = typeof metric.action_type === 'string' ? metric.action_type : '';
+      if (!actionType || !this.isConversionAction(actionType)) {
+        continue;
+      }
+
+      total += this.parseMetric(metric.value);
+    }
+
+    return total;
+  }
+
+  private normalizeInsight(raw: RawMetaInsight): MetaInsight {
+    const conversions = this.sumConversionMetrics(raw.actions);
+    const conversionValue = this.sumConversionMetrics(raw.action_values);
+
+    return {
+      date: raw.date_start || '',
+      impressions: this.parseMetric(raw.impressions),
+      reach: this.parseMetric(raw.reach),
+      clicks: this.parseMetric(raw.clicks),
+      ctr: this.parseMetric(raw.ctr),
+      cpc: this.parseMetric(raw.cpc),
+      cpm: this.parseMetric(raw.cpm),
+      spend: this.parseMetric(raw.spend),
+      conversions,
+      conversion_value: conversionValue,
+      frequency: this.parseMetric(raw.frequency),
+    };
+  }
+
   async getAdAccounts(accessToken: string): Promise<MetaAdAccount[]> {
     const client = this.createClient(accessToken);
     const response = await this.request<MetaApiResponse<MetaAdAccount[]>>(() =>
@@ -265,11 +354,11 @@ export class MetaApiService {
 
     const endpoint = entityId ? `/${entityId}/insights` : `/act_${adAccount.meta_account_id}/insights`;
 
-    const response = await this.request<MetaApiResponse<MetaInsight[]>>(() =>
+    const response = await this.request<MetaApiResponse<RawMetaInsight[]>>(() =>
       client.get(endpoint, {
         params: {
           fields:
-            'date,impressions,reach,clicks,ctr,cpc,cpm,spend,conversions,conversion_value,frequency',
+            'date_start,impressions,reach,clicks,ctr,cpc,cpm,spend,frequency,actions,action_values',
           ...(dateRange
             ? {
                 time_range: JSON.stringify(dateRange),
@@ -278,7 +367,7 @@ export class MetaApiService {
         },
       })
     );
-    return response.data;
+    return response.data.map((insight) => this.normalizeInsight(insight));
   }
 
   async pauseAd(adAccount: AdAccount, adId: string): Promise<Record<string, unknown>> {
