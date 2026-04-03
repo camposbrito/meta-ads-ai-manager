@@ -1,9 +1,120 @@
 import { useState, useEffect, useCallback } from 'react';
+import type { FormEvent } from 'react';
 import { Lightbulb, Check, X, Play, Settings, TrendingUp } from 'lucide-react';
 import { optimizationAPI, adAccountAPI } from '../services/api';
 import { Card } from '../components/Card';
 import { Button } from '../components/Button';
-import type { AdAccount, OptimizationSuggestion, OptimizationRule } from '../types';
+import type { AdAccount, OptimizationSuggestion, OptimizationRule, RuleCondition } from '../types';
+
+type RuleType = OptimizationRule['rule_type'];
+type ConditionField = RuleCondition['field'];
+type ConditionOperator = Extract<RuleCondition['operator'], 'gt' | 'gte' | 'lt' | 'lte' | 'eq' | 'neq'>;
+
+interface NewRuleForm {
+  name: string;
+  description: string;
+  ruleType: RuleType;
+  conditionField: ConditionField;
+  conditionOperator: ConditionOperator;
+  conditionValue: string;
+  minSpendThreshold: string;
+  minImpressionsThreshold: string;
+  evaluationPeriodDays: string;
+  budgetPercentage: string;
+}
+
+interface RulePreset {
+  id: string;
+  title: string;
+  description: string;
+  form: NewRuleForm;
+}
+
+const DEFAULT_NEW_RULE_FORM: NewRuleForm = {
+  name: '',
+  description: '',
+  ruleType: 'pause_ad',
+  conditionField: 'cpa',
+  conditionOperator: 'gt',
+  conditionValue: '50',
+  minSpendThreshold: '0',
+  minImpressionsThreshold: '0',
+  evaluationPeriodDays: '7',
+  budgetPercentage: '20',
+};
+
+const RULE_PRESETS: RulePreset[] = [
+  {
+    id: 'pause-high-cpa',
+    title: 'Pausar CPA Alto',
+    description: 'Pausa anúncios com CPA alto e volume mínimo de impressões.',
+    form: {
+      ...DEFAULT_NEW_RULE_FORM,
+      name: 'Pausar Anúncios com CPA Alto',
+      description: 'Pausa anúncios com custo por aquisição acima do limite.',
+      ruleType: 'pause_ad',
+      conditionField: 'cpa',
+      conditionOperator: 'gt',
+      conditionValue: '50',
+      minSpendThreshold: '100',
+      minImpressionsThreshold: '1000',
+      evaluationPeriodDays: '7',
+    },
+  },
+  {
+    id: 'duplicate-winner',
+    title: 'Duplicar Vencedor',
+    description: 'Duplica anúncios com CTR forte e CPA baixo.',
+    form: {
+      ...DEFAULT_NEW_RULE_FORM,
+      name: 'Duplicar Anúncios Vencedores',
+      description: 'Duplica anúncios com bom CTR e custo eficiente.',
+      ruleType: 'duplicate_ad',
+      conditionField: 'ctr',
+      conditionOperator: 'gt',
+      conditionValue: '0.02',
+      minSpendThreshold: '50',
+      minImpressionsThreshold: '1000',
+      evaluationPeriodDays: '7',
+    },
+  },
+  {
+    id: 'increase-high-roas',
+    title: 'Aumentar Alto ROAS',
+    description: 'Aumenta orçamento quando o ROAS está consistente.',
+    form: {
+      ...DEFAULT_NEW_RULE_FORM,
+      name: 'Aumentar Orçamento com ROAS Alto',
+      description: 'Aumenta orçamento para entidades com retorno acima da meta.',
+      ruleType: 'increase_budget',
+      conditionField: 'roas',
+      conditionOperator: 'gte',
+      conditionValue: '3',
+      minSpendThreshold: '200',
+      minImpressionsThreshold: '1000',
+      evaluationPeriodDays: '14',
+      budgetPercentage: '20',
+    },
+  },
+  {
+    id: 'decrease-low-roas',
+    title: 'Reduzir ROAS Baixo',
+    description: 'Reduz orçamento quando a eficiência cai.',
+    form: {
+      ...DEFAULT_NEW_RULE_FORM,
+      name: 'Reduzir Orçamento com ROAS Baixo',
+      description: 'Reduz orçamento de campanhas com retorno abaixo da meta.',
+      ruleType: 'decrease_budget',
+      conditionField: 'roas',
+      conditionOperator: 'lt',
+      conditionValue: '1.5',
+      minSpendThreshold: '150',
+      minImpressionsThreshold: '1000',
+      evaluationPeriodDays: '7',
+      budgetPercentage: '20',
+    },
+  },
+];
 
 export function OptimizationPage() {
   const [suggestions, setSuggestions] = useState<OptimizationSuggestion[]>([]);
@@ -15,6 +126,12 @@ export function OptimizationPage() {
   const [activeTab, setActiveTab] = useState<'suggestions' | 'rules'>('suggestions');
   const [runSummary, setRunSummary] = useState<string | null>(null);
   const [runError, setRunError] = useState<string | null>(null);
+
+  const [showCreateRuleModal, setShowCreateRuleModal] = useState(false);
+  const [newRuleForm, setNewRuleForm] = useState<NewRuleForm>(DEFAULT_NEW_RULE_FORM);
+  const [creatingRule, setCreatingRule] = useState(false);
+  const [createRuleError, setCreateRuleError] = useState<string | null>(null);
+  const [createRuleSuccess, setCreateRuleSuccess] = useState<string | null>(null);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -44,7 +161,7 @@ export function OptimizationPage() {
   const handleAccept = async (id: string, execute: boolean) => {
     try {
       await optimizationAPI.acceptSuggestion(id, execute);
-      loadData();
+      await loadData();
     } catch (error) {
       console.error('Error accepting suggestion:', error);
     }
@@ -53,7 +170,7 @@ export function OptimizationPage() {
   const handleReject = async (id: string) => {
     try {
       await optimizationAPI.rejectSuggestion(id);
-      loadData();
+      await loadData();
     } catch (error) {
       console.error('Error rejecting suggestion:', error);
     }
@@ -62,7 +179,7 @@ export function OptimizationPage() {
   const handleToggleRule = async (id: string, isActive: boolean) => {
     try {
       await optimizationAPI.toggleRule(id, !isActive);
-      loadData();
+      await loadData();
     } catch (error) {
       console.error('Error toggling rule:', error);
     }
@@ -96,6 +213,122 @@ export function OptimizationPage() {
       setRunError(errorMessage);
     } finally {
       setRunningOptimization(false);
+    }
+  };
+
+  const handleOpenCreateRuleModal = () => {
+    setCreateRuleError(null);
+    setCreateRuleSuccess(null);
+    setNewRuleForm(DEFAULT_NEW_RULE_FORM);
+    setShowCreateRuleModal(true);
+  };
+
+  const handleApplyPreset = (preset: RulePreset) => {
+    setCreateRuleError(null);
+    setNewRuleForm(preset.form);
+  };
+
+  const handleCloseCreateRuleModal = () => {
+    setShowCreateRuleModal(false);
+    setCreateRuleError(null);
+  };
+
+  const handleNewRuleChange = <K extends keyof NewRuleForm>(field: K, value: NewRuleForm[K]) => {
+    setNewRuleForm((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const buildRuleActions = (ruleType: RuleType, budgetPercentage: number) => {
+    if (ruleType === 'pause_ad') {
+      return [{ type: 'pause' as const }];
+    }
+
+    if (ruleType === 'duplicate_ad') {
+      return [{ type: 'duplicate' as const }];
+    }
+
+    if (ruleType === 'increase_budget') {
+      return [{ type: 'increase_budget' as const, params: { percentage: budgetPercentage } }];
+    }
+
+    return [{ type: 'decrease_budget' as const, params: { percentage: budgetPercentage } }];
+  };
+
+  const handleCreateRule = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setCreateRuleError(null);
+    setCreateRuleSuccess(null);
+
+    if (!newRuleForm.name.trim()) {
+      setCreateRuleError('Informe um nome para a regra.');
+      return;
+    }
+
+    const conditionValue = Number.parseFloat(newRuleForm.conditionValue);
+    if (!Number.isFinite(conditionValue)) {
+      setCreateRuleError('Informe um valor numérico válido para a condição.');
+      return;
+    }
+
+    const minSpendThreshold = Number.parseFloat(newRuleForm.minSpendThreshold || '0');
+    const minImpressionsThreshold = Number.parseInt(newRuleForm.minImpressionsThreshold || '0', 10);
+    const evaluationPeriodDays = Number.parseInt(newRuleForm.evaluationPeriodDays || '7', 10);
+    const budgetPercentage = Number.parseInt(newRuleForm.budgetPercentage || '20', 10);
+
+    if (!Number.isFinite(minSpendThreshold) || minSpendThreshold < 0) {
+      setCreateRuleError('Mínimo de gasto inválido.');
+      return;
+    }
+
+    if (!Number.isFinite(minImpressionsThreshold) || minImpressionsThreshold < 0) {
+      setCreateRuleError('Mínimo de impressões inválido.');
+      return;
+    }
+
+    if (!Number.isFinite(evaluationPeriodDays) || evaluationPeriodDays < 1 || evaluationPeriodDays > 365) {
+      setCreateRuleError('Período de avaliação deve estar entre 1 e 365 dias.');
+      return;
+    }
+
+    if (
+      (newRuleForm.ruleType === 'increase_budget' || newRuleForm.ruleType === 'decrease_budget') &&
+      (!Number.isFinite(budgetPercentage) || budgetPercentage < 1 || budgetPercentage > 100)
+    ) {
+      setCreateRuleError('Percentual de orçamento deve estar entre 1 e 100.');
+      return;
+    }
+
+    setCreatingRule(true);
+    try {
+      await optimizationAPI.createRule({
+        name: newRuleForm.name.trim(),
+        description: newRuleForm.description.trim() || null,
+        rule_type: newRuleForm.ruleType,
+        conditions: [
+          {
+            field: newRuleForm.conditionField,
+            operator: newRuleForm.conditionOperator,
+            value: conditionValue,
+          },
+        ],
+        actions: buildRuleActions(newRuleForm.ruleType, budgetPercentage),
+        priority: rules.length,
+        min_spend_threshold: minSpendThreshold,
+        min_impressions_threshold: minImpressionsThreshold,
+        evaluation_period_days: evaluationPeriodDays,
+      });
+
+      setCreateRuleSuccess(`Regra "${newRuleForm.name.trim()}" criada com sucesso.`);
+      setShowCreateRuleModal(false);
+      setActiveTab('rules');
+      await loadData();
+    } catch (error) {
+      console.error('Error creating rule:', error);
+      const errorMessage =
+        (error as { response?: { data?: { error?: string } } }).response?.data?.error ||
+        'Não foi possível criar a regra.';
+      setCreateRuleError(errorMessage);
+    } finally {
+      setCreatingRule(false);
     }
   };
 
@@ -154,11 +387,7 @@ export function OptimizationPage() {
               </option>
             ))}
           </select>
-          <Button
-            onClick={handleRunOptimization}
-            disabled={!selectedAccountId}
-            isLoading={runningOptimization}
-          >
+          <Button onClick={handleRunOptimization} disabled={!selectedAccountId} isLoading={runningOptimization}>
             <Play className="h-4 w-4 mr-2" />
             Executar Análise
           </Button>
@@ -177,7 +406,12 @@ export function OptimizationPage() {
         </div>
       )}
 
-      {/* Tabs */}
+      {createRuleSuccess && (
+        <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
+          {createRuleSuccess}
+        </div>
+      )}
+
       <div className="flex space-x-4 border-b border-gray-200">
         <button
           onClick={() => setActiveTab('suggestions')}
@@ -201,7 +435,6 @@ export function OptimizationPage() {
         </button>
       </div>
 
-      {/* Suggestions Tab */}
       {activeTab === 'suggestions' && (
         <div className="space-y-4">
           {suggestions.length === 0 ? (
@@ -219,9 +452,7 @@ export function OptimizationPage() {
               <Card key={suggestion.id} className={getSuggestionColor(suggestion.suggestion_type)}>
                 <div className="flex items-start justify-between">
                   <div className="flex items-start space-x-4">
-                    <div className="p-2 bg-white rounded-lg">
-                      {getSuggestionIcon(suggestion.suggestion_type)}
-                    </div>
+                    <div className="p-2 bg-white rounded-lg">{getSuggestionIcon(suggestion.suggestion_type)}</div>
                     <div>
                       <h3 className="font-semibold text-gray-900">{suggestion.title}</h3>
                       <p className="text-sm text-gray-600 mt-1">{suggestion.description}</p>
@@ -238,25 +469,14 @@ export function OptimizationPage() {
                     </div>
                   </div>
                   <div className="flex space-x-2">
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => handleReject(suggestion.id)}
-                    >
+                    <Button size="sm" variant="ghost" onClick={() => handleReject(suggestion.id)}>
                       <X className="h-4 w-4" />
                     </Button>
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      onClick={() => handleAccept(suggestion.id, false)}
-                    >
+                    <Button size="sm" variant="secondary" onClick={() => handleAccept(suggestion.id, false)}>
                       <Check className="h-4 w-4 mr-1" />
                       Aceitar
                     </Button>
-                    <Button
-                      size="sm"
-                      onClick={() => handleAccept(suggestion.id, true)}
-                    >
+                    <Button size="sm" onClick={() => handleAccept(suggestion.id, true)}>
                       <Play className="h-4 w-4 mr-1" />
                       Executar
                     </Button>
@@ -268,23 +488,20 @@ export function OptimizationPage() {
         </div>
       )}
 
-      {/* Rules Tab */}
       {activeTab === 'rules' && (
         <div className="space-y-4">
           <Card
             title="Regras de Otimização"
             description="Configure regras automáticas para otimizar suas campanhas"
             action={
-              <Button size="sm">
+              <Button size="sm" onClick={handleOpenCreateRuleModal}>
                 <Settings className="h-4 w-4 mr-2" />
                 Nova Regra
               </Button>
             }
           >
             {rules.length === 0 ? (
-              <div className="text-center py-8 text-gray-500">
-                Nenhuma regra configurada
-              </div>
+              <div className="text-center py-8 text-gray-500">Nenhuma regra configurada</div>
             ) : (
               <div className="space-y-4">
                 {rules.map((rule) => (
@@ -302,18 +519,16 @@ export function OptimizationPage() {
                             rule.rule_type === 'pause_ad'
                               ? 'bg-red-100 text-red-700'
                               : rule.rule_type === 'duplicate_ad'
-                              ? 'bg-green-100 text-green-700'
-                              : rule.rule_type === 'increase_budget'
-                              ? 'bg-blue-100 text-blue-700'
-                              : 'bg-yellow-100 text-yellow-700'
+                                ? 'bg-green-100 text-green-700'
+                                : rule.rule_type === 'increase_budget'
+                                  ? 'bg-blue-100 text-blue-700'
+                                  : 'bg-yellow-100 text-yellow-700'
                           }`}
                         >
                           {rule.rule_type.replace('_', ' ')}
                         </span>
                       </div>
-                      {rule.description && (
-                        <p className="text-sm text-gray-500 mt-1">{rule.description}</p>
-                      )}
+                      {rule.description && <p className="text-sm text-gray-500 mt-1">{rule.description}</p>}
                     </div>
                     <button
                       onClick={() => handleToggleRule(rule.id, rule.is_active)}
@@ -332,6 +547,198 @@ export function OptimizationPage() {
               </div>
             )}
           </Card>
+        </div>
+      )}
+
+      {showCreateRuleModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 py-6">
+          <div className="w-full max-w-3xl rounded-xl border border-gray-200 bg-white shadow-lg max-h-[92vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">Nova Regra de Otimização</h3>
+                <p className="text-sm text-gray-500">Use um preset sugerido ou configure manualmente.</p>
+              </div>
+              <Button variant="ghost" onClick={handleCloseCreateRuleModal}>
+                Fechar
+              </Button>
+            </div>
+
+            <div className="space-y-4 px-6 py-4">
+              <div>
+                <p className="text-sm font-medium text-gray-700 mb-2">Sugestões de regras</p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                  {RULE_PRESETS.map((preset) => (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      onClick={() => handleApplyPreset(preset)}
+                      className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-3 text-left hover:bg-gray-100 transition-colors"
+                    >
+                      <p className="text-sm font-medium text-gray-900">{preset.title}</p>
+                      <p className="text-xs text-gray-600 mt-1">{preset.description}</p>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {createRuleError && (
+                <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                  {createRuleError}
+                </div>
+              )}
+
+              <form className="space-y-4" onSubmit={handleCreateRule}>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="md:col-span-2">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Nome da Regra</label>
+                    <input
+                      type="text"
+                      value={newRuleForm.name}
+                      onChange={(event) => handleNewRuleChange('name', event.target.value)}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                      placeholder="Ex.: Pausar Anúncios com CPA Alto"
+                      required
+                    />
+                  </div>
+
+                  <div className="md:col-span-2">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Descrição (opcional)</label>
+                    <textarea
+                      value={newRuleForm.description}
+                      onChange={(event) => handleNewRuleChange('description', event.target.value)}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                      rows={2}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Tipo de Regra</label>
+                    <select
+                      value={newRuleForm.ruleType}
+                      onChange={(event) => handleNewRuleChange('ruleType', event.target.value as RuleType)}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white"
+                    >
+                      <option value="pause_ad">Pausar anúncio</option>
+                      <option value="duplicate_ad">Duplicar anúncio</option>
+                      <option value="increase_budget">Aumentar orçamento</option>
+                      <option value="decrease_budget">Reduzir orçamento</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Campo da Condição</label>
+                    <select
+                      value={newRuleForm.conditionField}
+                      onChange={(event) =>
+                        handleNewRuleChange('conditionField', event.target.value as ConditionField)
+                      }
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white"
+                    >
+                      <option value="cpa">CPA</option>
+                      <option value="ctr">CTR (0.02 = 2%)</option>
+                      <option value="roas">ROAS</option>
+                      <option value="cpc">CPC</option>
+                      <option value="spend">Gasto</option>
+                      <option value="impressions">Impressões</option>
+                      <option value="conversions">Conversões</option>
+                      <option value="clicks">Cliques</option>
+                      <option value="reach">Alcance</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Operador</label>
+                    <select
+                      value={newRuleForm.conditionOperator}
+                      onChange={(event) =>
+                        handleNewRuleChange('conditionOperator', event.target.value as ConditionOperator)
+                      }
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white"
+                    >
+                      <option value="gt">Maior que</option>
+                      <option value="gte">Maior ou igual</option>
+                      <option value="lt">Menor que</option>
+                      <option value="lte">Menor ou igual</option>
+                      <option value="eq">Igual a</option>
+                      <option value="neq">Diferente de</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Valor</label>
+                    <input
+                      type="number"
+                      step="any"
+                      value={newRuleForm.conditionValue}
+                      onChange={(event) => handleNewRuleChange('conditionValue', event.target.value)}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Gasto mínimo</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={newRuleForm.minSpendThreshold}
+                      onChange={(event) => handleNewRuleChange('minSpendThreshold', event.target.value)}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Impressões mínimas</label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={newRuleForm.minImpressionsThreshold}
+                      onChange={(event) => handleNewRuleChange('minImpressionsThreshold', event.target.value)}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Período (dias)</label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="365"
+                      value={newRuleForm.evaluationPeriodDays}
+                      onChange={(event) => handleNewRuleChange('evaluationPeriodDays', event.target.value)}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                    />
+                  </div>
+
+                  {(newRuleForm.ruleType === 'increase_budget' || newRuleForm.ruleType === 'decrease_budget') && (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Percentual de ajuste (%)
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        max="100"
+                        value={newRuleForm.budgetPercentage}
+                        onChange={(event) => handleNewRuleChange('budgetPercentage', event.target.value)}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                      />
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex justify-end gap-2 pt-2">
+                  <Button type="button" variant="secondary" onClick={handleCloseCreateRuleModal}>
+                    Cancelar
+                  </Button>
+                  <Button type="submit" isLoading={creatingRule}>
+                    Criar Regra
+                  </Button>
+                </div>
+              </form>
+            </div>
+          </div>
         </div>
       )}
     </div>
