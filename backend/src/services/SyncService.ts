@@ -56,10 +56,13 @@ export class SyncService {
       }
 
       let recordsSynced = 0;
+      let campaignMap = new Map<string, Campaign>();
+      let adSetMap = new Map<string, AdSet>();
+      let adMap = new Map<string, Ad>();
 
       if (jobType === 'full_sync' || jobType === 'incremental_sync') {
         const campaigns = await MetaApiService.getCampaigns(adAccount);
-        const campaignMap = await this.loadCampaignMap(campaigns.map((campaign) => campaign.id));
+        campaignMap = await this.loadCampaignMap(campaigns.map((campaign) => campaign.id));
 
         for (const metaCampaign of campaigns) {
           await this.syncCampaign(adAccount.id, metaCampaign, campaignMap);
@@ -67,7 +70,7 @@ export class SyncService {
         }
 
         const adSets = await MetaApiService.getAdSets(adAccount);
-        const adSetMap = await this.loadAdSetMap(adSets.map((adSet) => adSet.id));
+        adSetMap = await this.loadAdSetMap(adSets.map((adSet) => adSet.id));
 
         for (const metaAdSet of adSets) {
           await this.syncAdSet(metaAdSet, campaignMap, adSetMap);
@@ -75,27 +78,34 @@ export class SyncService {
         }
 
         const ads = await MetaApiService.getAds(adAccount);
-        const adMap = await this.loadAdMap(ads.map((ad) => ad.id));
+        adMap = await this.loadAdMap(ads.map((ad) => ad.id));
 
         for (const metaAd of ads) {
           await this.syncAd(metaAd, adSetMap, adMap);
           recordsSynced++;
         }
+      } else {
+        campaignMap = await this.loadCampaignMapByAdAccount(adAccount.id);
+        adSetMap = await this.loadAdSetMapByCampaignIds(
+          Array.from(campaignMap.values()).map((campaign) => campaign.id)
+        );
+        adMap = await this.loadAdMapByAdSetIds(
+          Array.from(adSetMap.values()).map((adSet) => adSet.id)
+        );
       }
 
       const today = new Date();
       const thirtyDaysAgo = new Date(today);
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-
-      const insights = await MetaApiService.getInsights(adAccount, 'account', undefined, {
+      const dateRange = {
         since: this.formatDate(thirtyDaysAgo),
         until: this.formatDate(today),
-      });
+      };
 
-      for (const metaInsight of insights) {
-        await this.syncInsight(adAccount.id, metaInsight, null, null, null);
-        recordsSynced++;
-      }
+      recordsSynced += await this.syncAccountInsights(adAccount, dateRange);
+      recordsSynced += await this.syncCampaignInsights(adAccount, campaignMap, dateRange);
+      recordsSynced += await this.syncAdSetInsights(adAccount, adSetMap, dateRange);
+      recordsSynced += await this.syncAdInsights(adAccount, adMap, adSetMap, dateRange);
 
       await adAccount.update({
         last_synced_at: new Date(),
@@ -152,6 +162,128 @@ export class SyncService {
     });
 
     return new Map(ads.map((ad) => [ad.meta_ad_id, ad]));
+  }
+
+  private async loadCampaignMapByAdAccount(adAccountId: string): Promise<Map<string, Campaign>> {
+    const campaigns = await Campaign.findAll({
+      where: { ad_account_id: adAccountId, is_active: true },
+    });
+
+    return new Map(campaigns.map((campaign) => [campaign.meta_campaign_id, campaign]));
+  }
+
+  private async loadAdSetMapByCampaignIds(campaignIds: string[]): Promise<Map<string, AdSet>> {
+    if (campaignIds.length === 0) {
+      return new Map();
+    }
+
+    const adSets = await AdSet.findAll({
+      where: { campaign_id: campaignIds, is_active: true },
+    });
+
+    return new Map(adSets.map((adSet) => [adSet.meta_adset_id, adSet]));
+  }
+
+  private async loadAdMapByAdSetIds(adSetIds: string[]): Promise<Map<string, Ad>> {
+    if (adSetIds.length === 0) {
+      return new Map();
+    }
+
+    const ads = await Ad.findAll({
+      where: { ad_set_id: adSetIds, is_active: true },
+    });
+
+    return new Map(ads.map((ad) => [ad.meta_ad_id, ad]));
+  }
+
+  private async syncAccountInsights(
+    adAccount: AdAccount,
+    dateRange: { since: string; until: string }
+  ): Promise<number> {
+    const insights = await MetaApiService.getInsights(adAccount, 'account', undefined, dateRange);
+    let synced = 0;
+
+    for (const metaInsight of insights) {
+      await this.syncInsight(adAccount.id, metaInsight, null, null, null);
+      synced++;
+    }
+
+    return synced;
+  }
+
+  private async syncCampaignInsights(
+    adAccount: AdAccount,
+    campaignMap: Map<string, Campaign>,
+    dateRange: { since: string; until: string }
+  ): Promise<number> {
+    let synced = 0;
+
+    for (const campaign of campaignMap.values()) {
+      const insights = await MetaApiService.getInsights(
+        adAccount,
+        'campaign',
+        campaign.meta_campaign_id,
+        dateRange
+      );
+
+      for (const metaInsight of insights) {
+        await this.syncInsight(adAccount.id, metaInsight, campaign.id, null, null);
+        synced++;
+      }
+    }
+
+    return synced;
+  }
+
+  private async syncAdSetInsights(
+    adAccount: AdAccount,
+    adSetMap: Map<string, AdSet>,
+    dateRange: { since: string; until: string }
+  ): Promise<number> {
+    let synced = 0;
+
+    for (const adSet of adSetMap.values()) {
+      const insights = await MetaApiService.getInsights(
+        adAccount,
+        'adset',
+        adSet.meta_adset_id,
+        dateRange
+      );
+
+      for (const metaInsight of insights) {
+        await this.syncInsight(adAccount.id, metaInsight, adSet.campaign_id, adSet.id, null);
+        synced++;
+      }
+    }
+
+    return synced;
+  }
+
+  private async syncAdInsights(
+    adAccount: AdAccount,
+    adMap: Map<string, Ad>,
+    adSetMap: Map<string, AdSet>,
+    dateRange: { since: string; until: string }
+  ): Promise<number> {
+    let synced = 0;
+    const adSetsById = new Map<string, AdSet>();
+
+    for (const adSet of adSetMap.values()) {
+      adSetsById.set(adSet.id, adSet);
+    }
+
+    for (const ad of adMap.values()) {
+      const insights = await MetaApiService.getInsights(adAccount, 'ad', ad.meta_ad_id, dateRange);
+      const relatedAdSet = adSetsById.get(ad.ad_set_id);
+      const campaignId = relatedAdSet?.campaign_id || null;
+
+      for (const metaInsight of insights) {
+        await this.syncInsight(adAccount.id, metaInsight, campaignId, ad.ad_set_id, ad.id);
+        synced++;
+      }
+    }
+
+    return synced;
   }
 
   private async syncCampaign(
@@ -278,10 +410,12 @@ export class SyncService {
     adSetId: string | null,
     adId: string | null
   ): Promise<Insight> {
+    const insightDate = this.normalizeInsightDate(metaInsight.date);
+
     const [insight] = await Insight.findOrCreate({
       where: {
         ad_account_id: adAccountId,
-        date: metaInsight.date,
+        date: insightDate,
         campaign_id: campaignId,
         ad_set_id: adSetId,
         ad_id: adId,
@@ -292,7 +426,7 @@ export class SyncService {
         campaign_id: campaignId,
         ad_set_id: adSetId,
         ad_id: adId,
-        date: metaInsight.date,
+        date: insightDate,
         impressions: metaInsight.impressions,
         reach: metaInsight.reach,
         clicks: metaInsight.clicks,
@@ -330,6 +464,14 @@ export class SyncService {
     });
 
     return insight;
+  }
+
+  private normalizeInsightDate(rawDate: string): string {
+    if (!rawDate) {
+      return this.formatDate(new Date());
+    }
+
+    return rawDate.slice(0, 10);
   }
 
   private formatDate(date: Date): string {

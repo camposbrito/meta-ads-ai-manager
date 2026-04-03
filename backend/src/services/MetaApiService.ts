@@ -227,16 +227,7 @@ export class MetaApiService {
   ): Promise<MetaInsight[]> {
     const client = this.createClient(this.getAccessToken(adAccount));
 
-    let endpoint = `/act_${adAccount.meta_account_id}/insights`;
-    if (entityId) {
-      if (level === 'campaign') {
-        endpoint = `/act_${adAccount.meta_account_id}/campaigns/${entityId}/insights`;
-      } else if (level === 'adset') {
-        endpoint = `/act_${adAccount.meta_account_id}/adsets/${entityId}/insights`;
-      } else if (level === 'ad') {
-        endpoint = `/act_${adAccount.meta_account_id}/ads/${entityId}/insights`;
-      }
-    }
+    const endpoint = entityId ? `/${entityId}/insights` : `/act_${adAccount.meta_account_id}/insights`;
 
     const response = await this.request<MetaApiResponse<MetaInsight[]>>(() =>
       client.get(endpoint, {
@@ -312,8 +303,7 @@ export class MetaApiService {
   ): Promise<Record<string, unknown>> {
     const client = this.createClient(this.getAccessToken(adAccount));
     return this.request<Record<string, unknown>>(() =>
-      client.post(`/act_${adAccount.meta_account_id}/adcreatives`, {
-        source_ad_id: adId,
+      client.post(`/${adId}/copies`, {
         name: newName,
       })
     );

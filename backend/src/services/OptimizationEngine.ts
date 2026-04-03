@@ -144,6 +144,10 @@ export class OptimizationEngine {
     metrics: PerformanceMetrics,
     pendingSuggestionKeys: Set<string>
   ): Promise<OptimizationSuggestion | null> {
+    if (action.type === 'duplicate' && entityType !== 'ad') {
+      return null;
+    }
+
     const suggestionKey = `${entityType}:${entityId}`;
     if (pendingSuggestionKeys.has(suggestionKey)) {
       return null;

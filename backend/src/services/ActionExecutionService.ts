@@ -131,6 +131,10 @@ export class ActionExecutionService {
           break;
 
         case 'duplicate_ad':
+          if (input.entityType !== 'ad') {
+            throw new AppError('duplicate_ad action can only be executed for ad entities', 400);
+          }
+
           const ad = entity as Ad;
           if (ad) {
             result = await MetaApiService.duplicateAd(adAccount, metaEntityId, `${ad.name} (Copy)`);
