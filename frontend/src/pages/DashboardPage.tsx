@@ -29,6 +29,7 @@ interface Overview {
 
 const META_OAUTH_STATE_KEY = 'meta_oauth_state';
 const META_OAUTH_TOKEN_KEY = 'meta_oauth_access_token';
+const META_OAUTH_RETURN_PATH_KEY = 'meta_oauth_return_path';
 
 export function DashboardPage() {
   const navigate = useNavigate();
@@ -150,6 +151,7 @@ export function DashboardPage() {
         : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
     localStorage.setItem(META_OAUTH_STATE_KEY, oauthState);
+    localStorage.setItem(META_OAUTH_RETURN_PATH_KEY, '/?meta_oauth=success');
 
     const params = new URLSearchParams({
       client_id: metaAppId,

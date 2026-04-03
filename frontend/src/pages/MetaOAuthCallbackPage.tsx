@@ -4,6 +4,7 @@ import { Button } from '../components/Button';
 
 const META_OAUTH_STATE_KEY = 'meta_oauth_state';
 const META_OAUTH_TOKEN_KEY = 'meta_oauth_access_token';
+const META_OAUTH_RETURN_PATH_KEY = 'meta_oauth_return_path';
 
 export function MetaOAuthCallbackPage() {
   const navigate = useNavigate();
@@ -39,14 +40,16 @@ export function MetaOAuthCallbackPage() {
   }, []);
 
   useEffect(() => {
+    const returnPath = localStorage.getItem(META_OAUTH_RETURN_PATH_KEY) || '/?meta_oauth=success';
     localStorage.removeItem(META_OAUTH_STATE_KEY);
+    localStorage.removeItem(META_OAUTH_RETURN_PATH_KEY);
 
     if (callbackData.error || !callbackData.accessToken) {
       return;
     }
 
     sessionStorage.setItem(META_OAUTH_TOKEN_KEY, callbackData.accessToken);
-    navigate('/?meta_oauth=success', { replace: true });
+    navigate(returnPath.startsWith('/') ? returnPath : '/?meta_oauth=success', { replace: true });
   }, [callbackData, navigate]);
 
   if (!callbackData.error) {
