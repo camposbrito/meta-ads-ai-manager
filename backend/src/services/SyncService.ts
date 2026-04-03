@@ -372,19 +372,21 @@ export class SyncService {
       throw new AppError(`Ad set not found for ad ${metaAd.id}`, 422);
     }
 
+    const creative = this.extractAdCreative(metaAd);
+
     const values = {
       ad_set_id: adSet.id,
       meta_ad_id: metaAd.id,
       name: metaAd.name,
       status: metaAd.status,
-      creative_type: metaAd.creative ? 'image' : 'unknown',
-      headline: metaAd.creative?.headline || metaAd.ad_creative?.headline || null,
-      primary_text: metaAd.creative?.body || metaAd.ad_creative?.body || null,
-      description: metaAd.creative?.description || metaAd.ad_creative?.description || null,
-      call_to_action: metaAd.creative?.call_to_action?.type || null,
-      link_url: metaAd.creative?.link_url || null,
-      image_url: metaAd.creative?.image_url || null,
-      video_url: metaAd.creative?.video_url || null,
+      creative_type: creative.creativeType,
+      headline: creative.headline,
+      primary_text: creative.primaryText,
+      description: creative.description,
+      call_to_action: creative.callToAction,
+      link_url: creative.linkUrl,
+      image_url: creative.imageUrl,
+      video_url: creative.videoUrl,
       is_active: metaAd.status !== 'DELETED',
     };
 
@@ -401,6 +403,54 @@ export class SyncService {
 
     adMap.set(metaAd.id, ad);
     return ad;
+  }
+
+  private extractAdCreative(metaAd: MetaAd): {
+    creativeType: string;
+    headline: string | null;
+    primaryText: string | null;
+    description: string | null;
+    callToAction: string | null;
+    linkUrl: string | null;
+    imageUrl: string | null;
+    videoUrl: string | null;
+  } {
+    const creative = metaAd.creative;
+    const storySpec = creative?.object_story_spec;
+    const linkData = storySpec?.link_data || storySpec?.template_data;
+    const videoData = storySpec?.video_data;
+    const photoData = storySpec?.photo_data;
+
+    const headline = creative?.title || linkData?.name || videoData?.title || null;
+    const primaryText =
+      creative?.body || linkData?.message || videoData?.message || photoData?.caption || null;
+    const description = linkData?.description || null;
+    const callToAction =
+      linkData?.call_to_action?.type ||
+      videoData?.call_to_action?.type ||
+      creative?.call_to_action_type ||
+      null;
+
+    const linkUrl =
+      linkData?.link ||
+      linkData?.call_to_action?.value?.link ||
+      videoData?.call_to_action?.value?.link ||
+      null;
+
+    const imageUrl = storySpec?.link_data?.picture || videoData?.image_url || photoData?.url || null;
+    const videoUrl = videoData?.video_id ? `https://www.facebook.com/${videoData.video_id}` : null;
+    const creativeType = videoData?.video_id ? 'video' : imageUrl ? 'image' : creative ? 'creative' : 'unknown';
+
+    return {
+      creativeType,
+      headline,
+      primaryText,
+      description,
+      callToAction,
+      linkUrl,
+      imageUrl,
+      videoUrl,
+    };
   }
 
   private async syncInsight(

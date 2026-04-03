@@ -51,7 +51,7 @@ export function DashboardPage() {
   const [connectError, setConnectError] = useState<string | null>(null);
   const [connectMessage, setConnectMessage] = useState<string | null>(null);
 
-  const metaAppId = import.meta.env.VITE_META_APP_ID || '1208761940872912';
+  const metaAppId = import.meta.env.VITE_META_APP_ID || '';
   const metaRedirectUri = import.meta.env.VITE_META_REDIRECT_URI || `${window.location.origin}/meta/callback`;
   const metaScopes =
     import.meta.env.VITE_META_SCOPES || 'ads_management,ads_read,business_management';

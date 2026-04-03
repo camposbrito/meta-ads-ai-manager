@@ -47,18 +47,54 @@ export interface MetaAd {
   adset_id: string;
   status: string;
   creative?: {
+    id?: string;
+    name?: string;
+    title?: string;
     body?: string;
-    headline?: string;
-    description?: string;
-    call_to_action?: { type: string };
-    link_url?: string;
-    image_url?: string;
-    video_url?: string;
-  };
-  ad_creative?: {
-    body?: string;
-    headline?: string;
-    description?: string;
+    call_to_action_type?: string;
+    object_story_spec?: {
+      link_data?: {
+        name?: string;
+        message?: string;
+        description?: string;
+        link?: string;
+        picture?: string;
+        call_to_action?: {
+          type?: string;
+          value?: {
+            link?: string;
+          };
+        };
+      };
+      video_data?: {
+        title?: string;
+        message?: string;
+        image_url?: string;
+        video_id?: string;
+        call_to_action?: {
+          type?: string;
+          value?: {
+            link?: string;
+          };
+        };
+      };
+      photo_data?: {
+        caption?: string;
+        url?: string;
+      };
+      template_data?: {
+        name?: string;
+        message?: string;
+        description?: string;
+        link?: string;
+        call_to_action?: {
+          type?: string;
+          value?: {
+            link?: string;
+          };
+        };
+      };
+    };
   };
 }
 
@@ -211,7 +247,7 @@ export class MetaApiService {
       client.get(endpoint, {
         params: {
           fields:
-            'id,name,adset_id,status,creative{body,headline,description,call_to_action,link_url,image_url,video_url},ad_creative{body,headline,description}',
+            'id,name,adset_id,status,creative{id,name,title,body,call_to_action_type,object_story_spec}',
           limit,
         },
       })
