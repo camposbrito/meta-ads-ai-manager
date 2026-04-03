@@ -1,9 +1,18 @@
+import crypto from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
-import { User, Organization, RefreshToken } from '../models';
-import { hashPassword, comparePassword } from './PasswordService';
-import { generateAccessToken, generateRefreshToken, verifyToken, JWTPayload } from './JWTService';
 import sequelize from '../config/database';
 import { AppError } from '../middleware/errorHandler';
+import { User, Organization, RefreshToken } from '../models';
+import {
+  generateAccessToken,
+  generatePasswordResetToken,
+  generateRefreshToken,
+  getTokenExpiration,
+  JWTPayload,
+  verifyPasswordResetToken,
+  verifyToken,
+} from './JWTService';
+import { hashPassword, comparePassword } from './PasswordService';
 
 export interface AuthTokens {
   accessToken: string;
@@ -25,6 +34,16 @@ export interface RegisterInput {
 export interface LoginInput {
   email: string;
   password: string;
+}
+
+export interface ResetPasswordInput {
+  token: string;
+  password: string;
+}
+
+export interface PasswordResetRequestResult {
+  resetToken?: string;
+  resetUrl?: string;
 }
 
 export class AuthService {
@@ -105,7 +124,7 @@ export class AuthService {
 
   async refreshTokens(refreshToken: string): Promise<AuthTokens> {
     try {
-      const payload = verifyToken(refreshToken);
+      verifyToken(refreshToken);
 
       // Check if token exists and is not revoked
       const tokenHash = this.hashToken(refreshToken);
@@ -152,7 +171,7 @@ export class AuthService {
         id: uuidv4(),
         user_id: user.id,
         token_hash: this.hashToken(newRefreshToken),
-        expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
+        expires_at: this.getRefreshTokenExpiration(newRefreshToken),
       });
 
       return { accessToken: newAccessToken, refreshToken: newRefreshToken };
@@ -174,6 +193,78 @@ export class AuthService {
     await RefreshToken.update({ revoked_at: new Date() }, { where: { user_id: userId } });
   }
 
+  async requestPasswordReset(email: string): Promise<PasswordResetRequestResult> {
+    const user = await User.findOne({ where: { email, is_active: true } });
+
+    if (!user) {
+      return {};
+    }
+
+    const resetToken = generatePasswordResetToken({
+      userId: user.id,
+      email: user.email,
+      passwordHashDigest: this.hashToken(user.password_hash),
+    });
+
+    const resetUrl = this.buildPasswordResetUrl(resetToken);
+
+    // TODO: Replace with real email provider integration.
+    if (process.env.NODE_ENV !== 'production') {
+      console.info(`[AuthService] Password reset URL for ${user.email}: ${resetUrl}`);
+      return { resetToken, resetUrl };
+    }
+
+    return {};
+  }
+
+  async resetPassword(input: ResetPasswordInput): Promise<void> {
+    if (input.password.length < 8) {
+      throw new AppError('Password must be at least 8 characters long', 400);
+    }
+
+    let payload;
+    try {
+      payload = verifyPasswordResetToken(input.token);
+    } catch (error) {
+      throw new AppError('Invalid or expired reset token', 400);
+    }
+
+    const user = await User.findOne({
+      where: { id: payload.userId, email: payload.email, is_active: true },
+    });
+
+    if (!user) {
+      throw new AppError('Invalid or expired reset token', 400);
+    }
+
+    const currentPasswordDigest = this.hashToken(user.password_hash);
+    if (currentPasswordDigest !== payload.passwordHashDigest) {
+      throw new AppError('Invalid or expired reset token', 400);
+    }
+
+    const samePassword = await comparePassword(input.password, user.password_hash);
+    if (samePassword) {
+      throw new AppError('New password must be different from the current password', 400);
+    }
+
+    const passwordHash = await hashPassword(input.password);
+    const transaction = await sequelize.transaction();
+
+    try {
+      await user.update({ password_hash: passwordHash }, { transaction });
+
+      await RefreshToken.update(
+        { revoked_at: new Date() },
+        { where: { user_id: user.id, revoked_at: null }, transaction }
+      );
+
+      await transaction.commit();
+    } catch (error) {
+      await transaction.rollback();
+      throw error;
+    }
+  }
+
   private async generateTokens(user: User, organization: Organization): Promise<AuthTokens> {
     const payload: JWTPayload = {
       userId: user.id,
@@ -190,15 +281,32 @@ export class AuthService {
       id: uuidv4(),
       user_id: user.id,
       token_hash: this.hashToken(refreshToken),
-      expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
+      expires_at: this.getRefreshTokenExpiration(refreshToken),
     });
 
     return { accessToken, refreshToken };
   }
 
   private hashToken(token: string): string {
-    const crypto = require('crypto');
     return crypto.createHash('sha256').update(token).digest('hex');
+  }
+
+  private getRefreshTokenExpiration(token: string): Date {
+    const expiration = getTokenExpiration(token);
+
+    if (!expiration) {
+      throw new AppError('Invalid refresh token expiration', 500);
+    }
+
+    return expiration;
+  }
+
+  private buildPasswordResetUrl(token: string): string {
+    const frontendUrl = (process.env.FRONTEND_URL || process.env.CORS_ORIGIN || 'http://localhost:5173').replace(
+      /\/+$/,
+      ''
+    );
+    return `${frontendUrl}/reset-password?token=${encodeURIComponent(token)}`;
   }
 
   private generateSlug(name: string): string {

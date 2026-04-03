@@ -56,6 +56,24 @@ export class AuthController {
     res.json({ tokens });
   }
 
+  async forgotPassword(req: Request, res: Response): Promise<void> {
+    const email = requireString(req.body.email, 'email');
+    const result = await authService.requestPasswordReset(email);
+    res.json({
+      message: 'If an account with this email exists, a password reset link has been sent.',
+      ...result,
+    });
+  }
+
+  async resetPassword(req: Request, res: Response): Promise<void> {
+    const token = requireString(req.body.token, 'token');
+    const password = requireString(req.body.password, 'password');
+
+    await authService.resetPassword({ token, password });
+
+    res.json({ message: 'Password reset successfully' });
+  }
+
   async logout(req: AuthRequest, res: Response): Promise<void> {
     const refreshToken = req.body.refreshToken;
 

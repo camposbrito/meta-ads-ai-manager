@@ -1,19 +1,20 @@
 import axios from 'axios';
 import type {
-  AuthTokens,
-  User,
-  Organization,
-  AdAccount,
-  Campaign,
   Ad,
-  Insight,
-  OptimizationSuggestion,
-  OptimizationRule,
-  Plan,
-  TeamMember,
-  RuleCondition,
-  RuleAction,
+  AdAccount,
+  AuthTokens,
   BillingSubscription,
+  Campaign,
+  Insight,
+  MetaAvailableAdAccount,
+  OptimizationRule,
+  OptimizationSuggestion,
+  Organization,
+  Plan,
+  RuleAction,
+  RuleCondition,
+  TeamMember,
+  User,
 } from '../types';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
@@ -25,7 +26,6 @@ const api = axios.create({
   },
 });
 
-// Request interceptor to add auth token
 api.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('accessToken');
@@ -37,7 +37,6 @@ api.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
-// Response interceptor to handle token refresh
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
@@ -78,9 +77,15 @@ export const authAPI = {
   login: (data: { email: string; password: string }) =>
     api.post<{ user: User; tokens: AuthTokens }>('/auth/login', data),
 
-  logout: (refreshToken: string) =>
-    api.post('/auth/logout', { refreshToken }),
+  forgotPassword: (email: string) =>
+    api.post<{ message: string; resetToken?: string; resetUrl?: string }>('/auth/forgot-password', {
+      email,
+    }),
 
+  resetPassword: (token: string, password: string) =>
+    api.post<{ message: string }>('/auth/reset-password', { token, password }),
+
+  logout: (refreshToken: string) => api.post('/auth/logout', { refreshToken }),
   me: () => api.get<{ user: User }>('/auth/me'),
 };
 
@@ -88,11 +93,9 @@ export const organizationAPI = {
   get: () => api.get<{ organization: Organization }>('/organization'),
   update: (data: { name: string }) => api.put<{ organization: Organization }>('/organization', data),
   getMembers: () => api.get<{ members: TeamMember[] }>('/organization/members'),
-  addMember: (data: { email: string; name: string; role: string }) =>
-    api.post('/organization/members', data),
+  addMember: (data: { email: string; name: string; role: string }) => api.post('/organization/members', data),
   removeMember: (id: string) => api.delete(`/organization/members/${id}`),
-  updateMemberRole: (id: string, role: string) =>
-    api.patch(`/organization/members/${id}/role`, { role }),
+  updateMemberRole: (id: string, role: string) => api.patch(`/organization/members/${id}/role`, { role }),
 };
 
 interface OptimizationRuleInput {
@@ -109,8 +112,9 @@ interface OptimizationRuleInput {
 
 export const adAccountAPI = {
   list: () => api.get<{ accounts: AdAccount[] }>('/ad-accounts'),
-  connect: (data: { accessToken: string; accountId: string }) =>
-    api.post('/ad-accounts/connect', data),
+  getMetaAccounts: (accessToken: string) =>
+    api.post<{ accounts: MetaAvailableAdAccount[] }>('/ad-accounts/meta/accounts', { accessToken }),
+  connect: (data: { accessToken: string; accountId: string }) => api.post('/ad-accounts/connect', data),
   disconnect: (id: string) => api.delete(`/ad-accounts/${id}`),
   sync: (id: string) => api.post(`/ad-accounts/${id}/sync`),
   getSyncStatus: (id: string) => api.get(`/ad-accounts/${id}/sync-status`),
@@ -129,18 +133,13 @@ export const optimizationAPI = {
   createRule: (data: OptimizationRuleInput) => api.post('/optimization/rules', data),
   updateRule: (id: string, data: Partial<OptimizationRuleInput>) => api.put(`/optimization/rules/${id}`, data),
   deleteRule: (id: string) => api.delete(`/optimization/rules/${id}`),
-  toggleRule: (id: string, is_active: boolean) =>
-    api.patch(`/optimization/rules/${id}/toggle`, { is_active }),
+  toggleRule: (id: string, is_active: boolean) => api.patch(`/optimization/rules/${id}/toggle`, { is_active }),
   getSuggestions: (status?: string) =>
     api.get<{ suggestions: OptimizationSuggestion[] }>('/optimization/suggestions', { params: { status } }),
-  getSuggestion: (id: string) =>
-    api.get<{ suggestion: OptimizationSuggestion }>(`/optimization/suggestions/${id}`),
-  acceptSuggestion: (id: string, execute?: boolean) =>
-    api.post(`/optimization/suggestions/${id}/accept`, { execute }),
-  rejectSuggestion: (id: string) =>
-    api.post(`/optimization/suggestions/${id}/reject`),
-  runOptimization: (ad_account_id: string) =>
-    api.post('/optimization/run', { ad_account_id }),
+  getSuggestion: (id: string) => api.get<{ suggestion: OptimizationSuggestion }>(`/optimization/suggestions/${id}`),
+  acceptSuggestion: (id: string, execute?: boolean) => api.post(`/optimization/suggestions/${id}/accept`, { execute }),
+  rejectSuggestion: (id: string) => api.post(`/optimization/suggestions/${id}/reject`),
+  runOptimization: (ad_account_id: string) => api.post('/optimization/run', { ad_account_id }),
 };
 
 export const billingAPI = {

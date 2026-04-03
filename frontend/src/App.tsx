@@ -1,24 +1,25 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { Sidebar } from './components/Sidebar';
 import { LoginPage } from './pages/LoginPage';
 import { RegisterPage } from './pages/RegisterPage';
+import { ForgotPasswordPage } from './pages/ForgotPasswordPage';
+import { ResetPasswordPage } from './pages/ResetPasswordPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { CampaignsPage } from './pages/CampaignsPage';
 import { OptimizationPage } from './pages/OptimizationPage';
 import { TeamPage } from './pages/TeamPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { BillingPage } from './pages/BillingPage';
+import { MetaOAuthCallbackPage } from './pages/MetaOAuthCallbackPage';
 
 function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-screen bg-gray-50">
       <Sidebar />
       <main className="lg:ml-64 p-6 lg:p-8">
-        <div className="max-w-7xl mx-auto">
-          {children}
-        </div>
+        <div className="max-w-7xl mx-auto">{children}</div>
       </main>
     </div>
   );
@@ -39,7 +40,16 @@ function AppRoutes() {
     <Routes>
       <Route path="/login" element={!isAuthenticated ? <LoginPage /> : <Navigate to="/" />} />
       <Route path="/register" element={!isAuthenticated ? <RegisterPage /> : <Navigate to="/" />} />
-      
+      <Route
+        path="/forgot-password"
+        element={!isAuthenticated ? <ForgotPasswordPage /> : <Navigate to="/" />}
+      />
+      <Route
+        path="/reset-password"
+        element={!isAuthenticated ? <ResetPasswordPage /> : <Navigate to="/" />}
+      />
+      <Route path="/meta/callback" element={<MetaOAuthCallbackPage />} />
+
       <Route
         path="/"
         element={

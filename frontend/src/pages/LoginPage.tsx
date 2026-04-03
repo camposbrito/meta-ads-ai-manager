@@ -1,7 +1,8 @@
-import { useState, FormEvent } from 'react';
+import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { Button } from '../components/Button';
+import type { FormEvent } from 'react';
 
 export function LoginPage() {
   const navigate = useNavigate();
@@ -19,7 +20,7 @@ export function LoginPage() {
     try {
       await login(email, password);
       navigate('/');
-    } catch (err) {
+    } catch {
       setError('Email ou senha inválidos');
     } finally {
       setIsLoading(false);
@@ -95,9 +96,9 @@ export function LoginPage() {
             </div>
 
             <div className="text-sm">
-              <a href="#" className="font-medium text-blue-600 hover:text-blue-500">
+              <Link to="/forgot-password" className="font-medium text-blue-600 hover:text-blue-500">
                 Esqueceu a senha?
-              </a>
+              </Link>
             </div>
           </div>
 
