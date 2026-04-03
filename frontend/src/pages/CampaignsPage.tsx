@@ -26,7 +26,7 @@ export function CampaignsPage() {
 
   const filteredCampaigns = filter === 'all'
     ? campaigns
-    : campaigns.filter(c => c.status.toLowerCase() === filter.toLowerCase());
+    : campaigns.filter((c) => (c.status || '').toLowerCase() === filter.toLowerCase());
 
   const getStatusColor = (status: string) => {
     switch (status.toLowerCase()) {
@@ -39,6 +39,19 @@ export function CampaignsPage() {
       default:
         return 'bg-gray-100 text-gray-700';
     }
+  };
+
+  const formatDailyBudget = (dailyBudget: Campaign['daily_budget'] | string | null | undefined) => {
+    if (dailyBudget === null || dailyBudget === undefined || dailyBudget === '') {
+      return '-';
+    }
+
+    const parsed = typeof dailyBudget === 'number' ? dailyBudget : Number.parseFloat(dailyBudget);
+    if (!Number.isFinite(parsed)) {
+      return '-';
+    }
+
+    return `R$ ${parsed.toFixed(2)}`;
   };
 
   if (loading) {
@@ -119,9 +132,7 @@ export function CampaignsPage() {
                       {campaign.objective || '-'}
                     </td>
                     <td className="py-3 px-4 text-sm text-gray-600">
-                      {campaign.daily_budget
-                        ? `R$ ${campaign.daily_budget.toFixed(2)}`
-                        : '-'}
+                      {formatDailyBudget(campaign.daily_budget)}
                     </td>
                     <td className="py-3 px-4 text-sm text-gray-600">
                       {campaign.ad_account_name || '-'}

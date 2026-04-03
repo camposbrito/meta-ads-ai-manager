@@ -184,7 +184,7 @@ export class DashboardController {
         name: campaign.name,
         status: campaign.status,
         objective: campaign.objective,
-        daily_budget: campaign.daily_budget,
+        daily_budget: campaign.daily_budget != null ? Number(campaign.daily_budget) : null,
         ad_account_name: campaign.adAccount?.name,
       })),
     });
