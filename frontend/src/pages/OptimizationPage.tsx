@@ -13,6 +13,8 @@ export function OptimizationPage() {
   const [loading, setLoading] = useState(true);
   const [runningOptimization, setRunningOptimization] = useState(false);
   const [activeTab, setActiveTab] = useState<'suggestions' | 'rules'>('suggestions');
+  const [runSummary, setRunSummary] = useState<string | null>(null);
+  const [runError, setRunError] = useState<string | null>(null);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -67,16 +69,31 @@ export function OptimizationPage() {
   };
 
   const handleRunOptimization = async () => {
+    setRunSummary(null);
+    setRunError(null);
+
     if (!selectedAccountId) {
+      setRunError('Selecione uma conta para executar a análise.');
       return;
     }
 
     setRunningOptimization(true);
     try {
-      await optimizationAPI.runOptimization(selectedAccountId);
+      const response = await optimizationAPI.runOptimization(selectedAccountId);
+      const { rules_evaluated, suggestions_generated } = response.data;
+
+      setRunSummary(
+        suggestions_generated > 0
+          ? `Análise concluída: ${rules_evaluated} regra(s) avaliadas, ${suggestions_generated} sugestão(ões) geradas.`
+          : `Análise concluída: ${rules_evaluated} regra(s) avaliadas, nenhuma sugestão gerada.`
+      );
       await loadData();
     } catch (error) {
       console.error('Error running optimization:', error);
+      const errorMessage =
+        (error as { response?: { data?: { error?: string } } }).response?.data?.error ||
+        'Não foi possível executar a análise agora.';
+      setRunError(errorMessage);
     } finally {
       setRunningOptimization(false);
     }
@@ -147,6 +164,18 @@ export function OptimizationPage() {
           </Button>
         </div>
       </div>
+
+      {runSummary && (
+        <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+          {runSummary}
+        </div>
+      )}
+
+      {runError && (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {runError}
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="flex space-x-4 border-b border-gray-200">

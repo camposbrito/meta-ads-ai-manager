@@ -140,7 +140,17 @@ export const optimizationAPI = {
   getSuggestion: (id: string) => api.get<{ suggestion: OptimizationSuggestion }>(`/optimization/suggestions/${id}`),
   acceptSuggestion: (id: string, execute?: boolean) => api.post(`/optimization/suggestions/${id}/accept`, { execute }),
   rejectSuggestion: (id: string) => api.post(`/optimization/suggestions/${id}/reject`),
-  runOptimization: (ad_account_id: string) => api.post('/optimization/run', { ad_account_id }),
+  runOptimization: (ad_account_id: string) =>
+    api.post<{
+      rules_evaluated: number;
+      suggestions_generated: number;
+      suggestions: Array<{
+        id: string;
+        title: string;
+        suggestion_type: OptimizationSuggestion['suggestion_type'];
+        entity_type: OptimizationSuggestion['entity_type'];
+      }>;
+    }>('/optimization/run', { ad_account_id }),
 };
 
 export const billingAPI = {
