@@ -6,6 +6,7 @@ import type {
   BillingSubscription,
   Campaign,
   Insight,
+  Ga4Integration,
   MetaAvailableAdAccount,
   OptimizationRule,
   OptimizationSuggestion,
@@ -151,6 +152,19 @@ export const billingAPI = {
       { plan, billing_cycle }
     ),
   cancel: () => api.post('/billing/cancel'),
+};
+
+export const integrationAPI = {
+  getGa4: () => api.get<{ integration: Ga4Integration | null }>('/integrations/ga4'),
+  saveGa4: (data: {
+    propertyId: string;
+    measurementId?: string;
+    serviceAccountEmail: string;
+    privateKey?: string;
+  }) => api.post<{ message: string; integration: Ga4Integration }>('/integrations/ga4', data),
+  testGa4: () =>
+    api.post<{ message: string; integration: Ga4Integration }>('/integrations/ga4/test'),
+  disconnectGa4: () => api.delete<{ message: string }>('/integrations/ga4'),
 };
 
 export default api;

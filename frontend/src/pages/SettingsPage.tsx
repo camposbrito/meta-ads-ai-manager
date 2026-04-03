@@ -3,10 +3,10 @@ import { useSearchParams } from 'react-router-dom';
 import { Plus, Trash2 } from 'lucide-react';
 import { Card } from '../components/Card';
 import { Button } from '../components/Button';
-import { adAccountAPI, organizationAPI } from '../services/api';
+import { adAccountAPI, integrationAPI, organizationAPI } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import type { FormEvent } from 'react';
-import type { AdAccount, MetaAvailableAdAccount } from '../types';
+import type { AdAccount, Ga4Integration, MetaAvailableAdAccount } from '../types';
 
 const META_OAUTH_STATE_KEY = 'meta_oauth_state';
 const META_OAUTH_TOKEN_KEY = 'meta_oauth_access_token';
@@ -36,6 +36,15 @@ export function SettingsPage() {
   const [connectingMetaAccount, setConnectingMetaAccount] = useState(false);
   const [integrationError, setIntegrationError] = useState('');
   const [integrationMessage, setIntegrationMessage] = useState('');
+  const [ga4Integration, setGa4Integration] = useState<Ga4Integration | null>(null);
+  const [showGa4Config, setShowGa4Config] = useState(false);
+  const [ga4PropertyId, setGa4PropertyId] = useState('');
+  const [ga4MeasurementId, setGa4MeasurementId] = useState('');
+  const [ga4ServiceAccountEmail, setGa4ServiceAccountEmail] = useState('');
+  const [ga4PrivateKey, setGa4PrivateKey] = useState('');
+  const [savingGa4, setSavingGa4] = useState(false);
+  const [testingGa4, setTestingGa4] = useState(false);
+  const [disconnectingGa4, setDisconnectingGa4] = useState(false);
 
   const metaAppId = import.meta.env.VITE_META_APP_ID || '';
   const metaRedirectUri = import.meta.env.VITE_META_REDIRECT_URI || `${window.location.origin}/meta/callback`;
@@ -47,14 +56,27 @@ export function SettingsPage() {
     setIntegrationMessage('');
   };
 
-  const loadAdAccounts = async () => {
+  const applyGa4DefaultsFromIntegration = (integration: Ga4Integration | null) => {
+    setGa4PropertyId(integration?.property_id || '');
+    setGa4MeasurementId(integration?.measurement_id || '');
+    setGa4ServiceAccountEmail(integration?.service_account_email || '');
+    setGa4PrivateKey('');
+  };
+
+  const loadIntegrations = async () => {
     setLoadingIntegrations(true);
     try {
-      const response = await adAccountAPI.list();
-      setAdAccounts(response.data.accounts);
+      const [accountsResponse, ga4Response] = await Promise.all([
+        adAccountAPI.list(),
+        integrationAPI.getGa4(),
+      ]);
+
+      setAdAccounts(accountsResponse.data.accounts);
+      setGa4Integration(ga4Response.data.integration);
+      applyGa4DefaultsFromIntegration(ga4Response.data.integration);
     } catch (error) {
-      console.error('Error loading ad accounts:', error);
-      setIntegrationError('Nao foi possivel carregar as integracoes Meta Ads.');
+      console.error('Error loading integrations:', error);
+      setIntegrationError('Nao foi possivel carregar as integracoes.');
     } finally {
       setLoadingIntegrations(false);
     }
@@ -74,7 +96,7 @@ export function SettingsPage() {
 
     setContactEmail(user?.email || '');
     void loadOrganization();
-    void loadAdAccounts();
+    void loadIntegrations();
   }, [user?.email]);
 
   useEffect(() => {
@@ -210,7 +232,7 @@ export function SettingsPage() {
       setSelectedMetaAccountId('');
       setAvailableMetaAccounts([]);
       setShowMetaConfig(false);
-      await loadAdAccounts();
+      await loadIntegrations();
     } catch (error) {
       const errorMessage =
         (error as { response?: { data?: { error?: string } } }).response?.data?.error ||
@@ -218,6 +240,70 @@ export function SettingsPage() {
       setIntegrationError(errorMessage);
     } finally {
       setConnectingMetaAccount(false);
+    }
+  };
+
+  const handleSaveGa4Integration = async () => {
+    clearIntegrationAlerts();
+    setSavingGa4(true);
+
+    try {
+      const response = await integrationAPI.saveGa4({
+        propertyId: ga4PropertyId.trim(),
+        measurementId: ga4MeasurementId.trim() || undefined,
+        serviceAccountEmail: ga4ServiceAccountEmail.trim(),
+        privateKey: ga4PrivateKey.trim() || undefined,
+      });
+
+      setGa4Integration(response.data.integration);
+      applyGa4DefaultsFromIntegration(response.data.integration);
+      setIntegrationMessage('Integracao GA4 salva com sucesso.');
+      setShowGa4Config(false);
+    } catch (error) {
+      const errorMessage =
+        (error as { response?: { data?: { error?: string } } }).response?.data?.error ||
+        'Nao foi possivel salvar a integracao GA4.';
+      setIntegrationError(errorMessage);
+    } finally {
+      setSavingGa4(false);
+    }
+  };
+
+  const handleTestGa4Integration = async () => {
+    clearIntegrationAlerts();
+    setTestingGa4(true);
+
+    try {
+      const response = await integrationAPI.testGa4();
+      setGa4Integration(response.data.integration);
+      setIntegrationMessage('Conexao com GA4 validada com sucesso.');
+    } catch (error) {
+      const errorMessage =
+        (error as { response?: { data?: { error?: string } } }).response?.data?.error ||
+        'Nao foi possivel validar a integracao GA4.';
+      setIntegrationError(errorMessage);
+    } finally {
+      setTestingGa4(false);
+    }
+  };
+
+  const handleDisconnectGa4Integration = async () => {
+    clearIntegrationAlerts();
+    setDisconnectingGa4(true);
+
+    try {
+      await integrationAPI.disconnectGa4();
+      setGa4Integration(null);
+      applyGa4DefaultsFromIntegration(null);
+      setShowGa4Config(false);
+      setIntegrationMessage('Integracao GA4 desconectada.');
+    } catch (error) {
+      const errorMessage =
+        (error as { response?: { data?: { error?: string } } }).response?.data?.error ||
+        'Nao foi possivel desconectar a integracao GA4.';
+      setIntegrationError(errorMessage);
+    } finally {
+      setDisconnectingGa4(false);
     }
   };
 
@@ -456,20 +542,133 @@ export function SettingsPage() {
               </div>
             )}
 
-            <div className="flex items-center justify-between p-4 border border-gray-200 rounded-lg opacity-60">
+            <div className="flex items-center justify-between p-4 border border-gray-200 rounded-lg">
               <div className="flex items-center space-x-4">
                 <div className="w-12 h-12 bg-green-600 rounded-lg flex items-center justify-center">
                   <span className="text-white font-bold">GA4</span>
                 </div>
                 <div>
                   <h4 className="font-medium text-gray-900">Google Analytics 4</h4>
-                  <p className="text-sm text-gray-500">Em breve</p>
+                  <p className="text-sm text-gray-500">
+                    {loadingIntegrations
+                      ? 'Carregando...'
+                      : ga4Integration
+                        ? `Conectado (Property ${ga4Integration.property_id})`
+                        : 'Nao conectado'}
+                  </p>
                 </div>
               </div>
-              <Button variant="secondary" size="sm" disabled>
-                Indisponivel
-              </Button>
+              <div className="flex gap-2">
+                {ga4Integration && (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    isLoading={testingGa4}
+                    onClick={() => void handleTestGa4Integration()}
+                  >
+                    Testar
+                  </Button>
+                )}
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => {
+                    setShowGa4Config((prev) => !prev);
+                    clearIntegrationAlerts();
+                  }}
+                >
+                  {showGa4Config ? 'Fechar' : ga4Integration ? 'Editar' : 'Configurar'}
+                </Button>
+              </div>
             </div>
+
+            {showGa4Config && (
+              <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 space-y-4">
+                <div className="space-y-2">
+                  <label htmlFor="ga4PropertyId" className="block text-sm font-medium text-gray-700">
+                    GA4 Property ID
+                  </label>
+                  <input
+                    id="ga4PropertyId"
+                    type="text"
+                    value={ga4PropertyId}
+                    onChange={(event) => setGa4PropertyId(event.target.value)}
+                    placeholder="123456789"
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <label htmlFor="ga4MeasurementId" className="block text-sm font-medium text-gray-700">
+                    Measurement ID (opcional)
+                  </label>
+                  <input
+                    id="ga4MeasurementId"
+                    type="text"
+                    value={ga4MeasurementId}
+                    onChange={(event) => setGa4MeasurementId(event.target.value)}
+                    placeholder="G-XXXXXXXXXX"
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <label htmlFor="ga4ServiceAccountEmail" className="block text-sm font-medium text-gray-700">
+                    Service Account Email
+                  </label>
+                  <input
+                    id="ga4ServiceAccountEmail"
+                    type="email"
+                    value={ga4ServiceAccountEmail}
+                    onChange={(event) => setGa4ServiceAccountEmail(event.target.value)}
+                    placeholder="ga4-reader@project-id.iam.gserviceaccount.com"
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <label htmlFor="ga4PrivateKey" className="block text-sm font-medium text-gray-700">
+                    Service Account Private Key
+                  </label>
+                  <textarea
+                    id="ga4PrivateKey"
+                    value={ga4PrivateKey}
+                    onChange={(event) => setGa4PrivateKey(event.target.value)}
+                    rows={5}
+                    placeholder={
+                      ga4Integration?.has_credentials
+                        ? 'Deixe vazio para manter a chave atual'
+                        : '-----BEGIN PRIVATE KEY-----'
+                    }
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                  />
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  <Button isLoading={savingGa4} onClick={() => void handleSaveGa4Integration()}>
+                    Salvar GA4
+                  </Button>
+                  {ga4Integration && (
+                    <Button
+                      variant="secondary"
+                      isLoading={disconnectingGa4}
+                      onClick={() => void handleDisconnectGa4Integration()}
+                    >
+                      Desconectar
+                    </Button>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {ga4Integration?.last_tested_at && (
+              <div className="text-xs text-gray-500">
+                Ultimo teste: {new Date(ga4Integration.last_tested_at).toLocaleString()}
+              </div>
+            )}
+            {ga4Integration?.last_error && (
+              <div className="text-xs text-red-600">Ultimo erro GA4: {ga4Integration.last_error}</div>
+            )}
           </div>
         </Card>
       )}

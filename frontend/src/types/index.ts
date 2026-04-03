@@ -152,3 +152,16 @@ export interface BillingSubscription {
     daily_syncs: number;
   };
 }
+
+export interface Ga4Integration {
+  id: string;
+  property_id: string;
+  measurement_id?: string | null;
+  service_account_email: string;
+  is_active: boolean;
+  has_credentials: boolean;
+  last_tested_at?: string | null;
+  last_error?: string | null;
+  created_at: string;
+  updated_at: string;
+}

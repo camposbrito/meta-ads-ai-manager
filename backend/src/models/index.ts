@@ -11,6 +11,7 @@ import OptimizationRule from './OptimizationRule';
 import OptimizationSuggestion from './OptimizationSuggestion';
 import ExecutedAction from './ExecutedAction';
 import SyncJob from './SyncJob';
+import Ga4Integration from './Ga4Integration';
 
 // Organization associations
 Organization.hasMany(User, { foreignKey: 'organization_id', as: 'users' });
@@ -18,11 +19,13 @@ Organization.hasMany(AdAccount, { foreignKey: 'organization_id', as: 'adAccounts
 Organization.hasMany(OptimizationRule, { foreignKey: 'organization_id', as: 'optimizationRules' });
 Organization.hasMany(OptimizationSuggestion, { foreignKey: 'organization_id', as: 'optimizationSuggestions' });
 Organization.hasMany(ExecutedAction, { foreignKey: 'organization_id', as: 'executedActions' });
+Organization.hasOne(Ga4Integration, { foreignKey: 'organization_id', as: 'ga4Integration' });
 User.belongsTo(Organization, { foreignKey: 'organization_id', as: 'organization' });
 AdAccount.belongsTo(Organization, { foreignKey: 'organization_id', as: 'organization' });
 OptimizationRule.belongsTo(Organization, { foreignKey: 'organization_id', as: 'organization' });
 OptimizationSuggestion.belongsTo(Organization, { foreignKey: 'organization_id', as: 'organization' });
 ExecutedAction.belongsTo(Organization, { foreignKey: 'organization_id', as: 'organization' });
+Ga4Integration.belongsTo(Organization, { foreignKey: 'organization_id', as: 'organization' });
 
 // User associations
 User.hasMany(RefreshToken, { foreignKey: 'user_id', as: 'refreshTokens' });
@@ -82,6 +85,7 @@ export {
   OptimizationSuggestion,
   ExecutedAction,
   SyncJob,
+  Ga4Integration,
 };
 
 export default sequelize;

@@ -5,6 +5,7 @@ import adAccountRoutes from './ad-accounts';
 import dashboardRoutes from './dashboard';
 import optimizationRoutes from './optimization';
 import billingRoutes from './billing';
+import integrationsRoutes from './integrations';
 
 const router = Router();
 
@@ -14,6 +15,7 @@ router.use('/ad-accounts', adAccountRoutes);
 router.use('/dashboard', dashboardRoutes);
 router.use('/optimization', optimizationRoutes);
 router.use('/billing', billingRoutes);
+router.use('/integrations', integrationsRoutes);
 
 // Health check
 router.get('/health', (req, res) => {

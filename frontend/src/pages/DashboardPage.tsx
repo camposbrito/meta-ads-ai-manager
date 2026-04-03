@@ -51,7 +51,7 @@ export function DashboardPage() {
   const [connectError, setConnectError] = useState<string | null>(null);
   const [connectMessage, setConnectMessage] = useState<string | null>(null);
 
-  const metaAppId = import.meta.env.VITE_META_APP_ID || '';
+  const metaAppId = import.meta.env.VITE_META_APP_ID || '1208761940872912';
   const metaRedirectUri = import.meta.env.VITE_META_REDIRECT_URI || `${window.location.origin}/meta/callback`;
   const metaScopes =
     import.meta.env.VITE_META_SCOPES || 'ads_management,ads_read,business_management';
@@ -340,6 +340,37 @@ export function DashboardPage() {
 
         {showConnectForm && (
           <div className="mb-6 rounded-lg border border-gray-200 bg-gray-50 p-4 space-y-4">
+            <details className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3">
+              <summary className="cursor-pointer text-sm font-medium text-blue-900">
+                Help: como conectar via OAuth Meta
+              </summary>
+              <div className="mt-3 text-sm text-blue-900 space-y-2">
+                <p className="font-medium">Passo a passo:</p>
+                <ol className="list-decimal pl-5 space-y-1">
+                  <li>Clique em "Conectar via OAuth Meta".</li>
+                  <li>Faça login no Facebook/Meta e autorize os escopos solicitados.</li>
+                  <li>Voce sera redirecionado para esta pagina automaticamente.</li>
+                  <li>Clique em "Buscar Contas", selecione a conta e confirme em "Confirmar Conexao".</li>
+                </ol>
+                <p>
+                  Se o botao OAuth nao abrir, valide as variaveis de ambiente
+                  {' '}
+                  <code>VITE_META_APP_ID</code>
+                  {' '}
+                  e
+                  {' '}
+                  <code>VITE_META_REDIRECT_URI</code>.
+                </p>
+                <p>
+                  Se o callback falhar, confira se a URL de callback da Meta esta igual a
+                  {' '}
+                  <code>/meta/callback</code>
+                  {' '}
+                  no frontend.
+                </p>
+              </div>
+            </details>
+
             <div className="flex flex-wrap gap-2">
               <Button size="sm" onClick={handleStartMetaOAuth}>
                 Conectar via OAuth Meta
