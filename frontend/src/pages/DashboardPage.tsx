@@ -529,6 +529,27 @@ export function DashboardPage() {
     }
   };
 
+  const handlePrepareReconnect = (account: AdAccount) => {
+    setShowConnectForm(true);
+    setMetaAccessToken('');
+    setAvailableMetaAccounts([]);
+    setSelectedMetaAccountId('');
+    setManualAccountId(account.meta_account_id);
+    setConnectError(null);
+    setConnectMessage(
+      `Reconexão preparada para "${account.name}". Informe um novo token e confirme a conexão.`
+    );
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const isExpiredMetaTokenError = (message: string | null | undefined): boolean => {
+    if (!message) {
+      return false;
+    }
+
+    return /error validating access token|session has expired|oauth/i.test(message);
+  };
+
   const handleCampaignDrillDown = (metric: 'spend' | 'impressions' | 'clicks' | 'conversions') => {
     navigate(`/campaigns?sort=${metric}&order=desc&days=${selectedDays}`);
   };
@@ -972,6 +993,15 @@ export function DashboardPage() {
                       >
                         Sincronizar
                       </Button>
+                      {isExpiredMetaTokenError(latestJob?.error_message) && (
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => handlePrepareReconnect(account)}
+                        >
+                          Reconectar
+                        </Button>
+                      )}
                       <Button
                         size="sm"
                         variant="ghost"
