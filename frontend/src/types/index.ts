@@ -3,7 +3,12 @@ export interface User {
   email: string;
   name: string;
   role: 'admin' | 'member';
-  organizationId: string;
+  organizationId?: string;
+  organization?: {
+    id: string;
+    name: string;
+    plan: 'free' | 'pro' | 'agency';
+  };
 }
 
 export interface Organization {
@@ -80,9 +85,20 @@ export interface OptimizationRule {
   description?: string | null;
   rule_type: 'pause_ad' | 'duplicate_ad' | 'increase_budget' | 'decrease_budget';
   is_active: boolean;
-  conditions: any;
-  actions: any;
+  conditions: RuleCondition[];
+  actions: RuleAction[];
   priority: number;
+}
+
+export interface RuleCondition {
+  field: 'impressions' | 'reach' | 'clicks' | 'spend' | 'conversions' | 'ctr' | 'cpc' | 'cpa' | 'roas';
+  operator: 'gt' | 'gte' | 'lt' | 'lte' | 'eq' | 'neq' | 'between' | 'in';
+  value: number | string | [number, number] | Array<number | string>;
+}
+
+export interface RuleAction {
+  type: 'pause' | 'duplicate' | 'increase_budget' | 'decrease_budget';
+  params?: Record<string, number | string | boolean>;
 }
 
 export interface Plan {
@@ -98,4 +114,41 @@ export interface Plan {
 export interface AuthTokens {
   accessToken: string;
   refreshToken: string;
+}
+
+export interface TeamMember {
+  id: string;
+  email: string;
+  name: string;
+  role: 'admin' | 'member';
+  last_login_at?: string | null;
+  created_at: string;
+}
+
+export interface MetaAvailableAdAccount {
+  id: string;
+  meta_account_id: string;
+  name: string;
+  currency: string;
+  business_id?: string | null;
+}
+
+export interface BillingSubscription {
+  id: 'free' | 'pro' | 'agency';
+  name: string;
+  status?: string | null;
+  ends_at?: string | null;
+  limits: {
+    max_ad_accounts: number;
+    max_daily_syncs: number;
+    max_users: number;
+    optimization_enabled: boolean;
+    auto_optimization_enabled: boolean;
+    data_retention_days: number;
+    support_level: 'community' | 'email' | 'priority';
+  };
+  usage: {
+    ad_accounts: number;
+    daily_syncs: number;
+  };
 }

@@ -31,6 +31,23 @@ export class AdAccountController {
     });
   }
 
+  async listMetaAccounts(req: AuthRequest, res: Response): Promise<void> {
+    requireAuth(req);
+    const accessToken = requireString(req.body.accessToken, 'accessToken');
+
+    const metaAccounts = await MetaApiService.getAdAccounts(accessToken);
+
+    res.json({
+      accounts: metaAccounts.map((account) => ({
+        id: account.id.replace('act_', ''),
+        meta_account_id: account.id,
+        name: account.name,
+        currency: account.currency,
+        business_id: account.business?.id || null,
+      })),
+    });
+  }
+
   async connect(req: AuthRequest, res: Response): Promise<void> {
     const transaction = await sequelize.transaction();
 

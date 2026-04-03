@@ -7,6 +7,7 @@ const router = Router();
 router.use(authenticate);
 
 router.get('/', adAccountController.list);
+router.post('/meta/accounts', adAccountController.listMetaAccounts);
 router.post('/connect', adAccountController.connect);
 router.post('/:id/sync', adAccountController.sync);
 router.get('/:id/sync-status', adAccountController.getSyncStatus);
