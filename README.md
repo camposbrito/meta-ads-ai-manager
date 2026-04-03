@@ -172,6 +172,14 @@ npm run dev
 | ENCRYPTION_KEY | Key for encrypting tokens | (required) |
 | JWT_SECRET | JWT signing secret | (required) |
 | JWT_EXPIRES_IN | Access token expiration | 7d |
+| REFRESH_TOKEN_EXPIRES_IN | Refresh token expiration | 7d |
+| PASSWORD_RESET_SECRET | Secret used in password reset tokens | (required) |
+| PASSWORD_RESET_EXPIRES_IN | Password reset token expiration | 1h |
+| SMTP_HOST | SMTP host for password reset emails | (optional) |
+| SMTP_PORT | SMTP port | 587 |
+| SMTP_USER | SMTP username | (optional) |
+| SMTP_PASS | SMTP password | (optional) |
+| SMTP_FROM | Sender email | no-reply@metaadsai.local |
 | CORS_ORIGIN | Frontend URL | http://localhost:5173 |
 
 ## API Endpoints
@@ -183,6 +191,8 @@ npm run dev
 | POST | `/api/auth/register` | Register new account |
 | POST | `/api/auth/login` | Login |
 | POST | `/api/auth/refresh-token` | Refresh access token |
+| POST | `/api/auth/forgot-password` | Request password reset |
+| POST | `/api/auth/reset-password` | Reset password with token |
 | POST | `/api/auth/logout` | Logout |
 | GET | `/api/auth/me` | Get current user |
 
@@ -192,7 +202,7 @@ npm run dev
 |--------|----------|-------------|
 | GET | `/api/ad-accounts` | List connected accounts |
 | POST | `/api/ad-accounts/connect` | Connect new account |
-| DELETE | `/api/ad-accounts/:id` | Disconnect account |
+| DELETE | `/api/ad-accounts/:id` | Disconnect account (`?delete_history=true` to remove historical data) |
 | POST | `/api/ad-accounts/:id/sync` | Trigger sync |
 | GET | `/api/ad-accounts/:id/sync-status` | Get sync status |
 

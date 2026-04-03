@@ -13,6 +13,7 @@ import {
   verifyToken,
 } from './JWTService';
 import { hashPassword, comparePassword } from './PasswordService';
+import emailService from './EmailService';
 
 export interface AuthTokens {
   accessToken: string;
@@ -207,11 +208,17 @@ export class AuthService {
     });
 
     const resetUrl = this.buildPasswordResetUrl(resetToken);
+    const emailSent = await emailService.sendPasswordResetEmail(user.email, resetUrl);
 
-    // TODO: Replace with real email provider integration.
     if (process.env.NODE_ENV !== 'production') {
       console.info(`[AuthService] Password reset URL for ${user.email}: ${resetUrl}`);
       return { resetToken, resetUrl };
+    }
+
+    if (!emailSent) {
+      console.warn(
+        '[AuthService] SMTP is not configured. Password reset email was not sent in production mode.'
+      );
     }
 
     return {};
