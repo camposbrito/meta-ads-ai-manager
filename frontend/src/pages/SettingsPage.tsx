@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Plus, Trash2 } from 'lucide-react';
 import { Card } from '../components/Card';
@@ -66,10 +66,10 @@ export function SettingsPage() {
   const metaScopes =
     import.meta.env.VITE_META_SCOPES || 'ads_management,ads_read,business_management';
 
-  const clearIntegrationAlerts = () => {
+  const clearIntegrationAlerts = useCallback(() => {
     setIntegrationError('');
     setIntegrationMessage('');
-  };
+  }, []);
 
   const applyGa4DefaultsFromIntegration = (integration: Ga4Integration | null) => {
     setGa4PropertyId(integration?.property_id || '');
@@ -78,7 +78,7 @@ export function SettingsPage() {
     setGa4PrivateKey('');
   };
 
-  const loadIntegrations = async () => {
+  const loadIntegrations = useCallback(async () => {
     setLoadingIntegrations(true);
     try {
       const [accountsResponse, ga4Response] = await Promise.all([
@@ -95,9 +95,9 @@ export function SettingsPage() {
     } finally {
       setLoadingIntegrations(false);
     }
-  };
+  }, []);
 
-  const loadMembers = async () => {
+  const loadMembers = useCallback(async () => {
     setLoadingMembers(true);
     try {
       const response = await organizationAPI.getMembers();
@@ -107,67 +107,9 @@ export function SettingsPage() {
     } finally {
       setLoadingMembers(false);
     }
-  };
+  }, []);
 
-  useEffect(() => {
-    const loadOrganization = async () => {
-      try {
-        const response = await organizationAPI.get();
-        setOrganizationName(response.data.organization.name || '');
-      } catch (error) {
-        console.error('Error loading organization settings:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    setContactEmail(user?.email || '');
-    void loadOrganization();
-    void loadIntegrations();
-    void loadMembers();
-  }, [user?.email]);
-
-  useEffect(() => {
-    const section = searchParams.get('section');
-    if (section === 'general' || section === 'team' || section === 'integrations' || section === 'notifications') {
-      setActiveSection(section);
-    }
-  }, [searchParams]);
-
-  useEffect(() => {
-    const oauthAccessToken = sessionStorage.getItem(META_OAUTH_TOKEN_KEY);
-    if (!oauthAccessToken) {
-      return;
-    }
-
-    sessionStorage.removeItem(META_OAUTH_TOKEN_KEY);
-    setActiveSection('integrations');
-    setShowMetaConfig(true);
-    setMetaAccessToken(oauthAccessToken);
-    void loadMetaAccounts(oauthAccessToken);
-
-    const updated = new URLSearchParams(searchParams);
-    updated.delete('meta_oauth');
-    setSearchParams(updated, { replace: true });
-  }, [searchParams, setSearchParams]);
-
-  const handleSaveGeneralSettings = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setSaveMessage('');
-    setSaving(true);
-
-    try {
-      await organizationAPI.update({ name: organizationName });
-      setSaveMessage('Configuracoes salvas com sucesso.');
-    } catch (error) {
-      console.error('Error saving organization settings:', error);
-      setSaveMessage('Nao foi possivel salvar as alteracoes.');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const loadMetaAccounts = async (tokenOverride?: string) => {
+  const loadMetaAccounts = useCallback(async (tokenOverride?: string) => {
     const tokenToUse = (tokenOverride ?? metaAccessToken).trim();
     clearIntegrationAlerts();
 
@@ -198,6 +140,64 @@ export function SettingsPage() {
       setIntegrationError(errorMessage);
     } finally {
       setLoadingMetaAccounts(false);
+    }
+  }, [clearIntegrationAlerts, metaAccessToken]);
+
+  useEffect(() => {
+    const loadOrganization = async () => {
+      try {
+        const response = await organizationAPI.get();
+        setOrganizationName(response.data.organization.name || '');
+      } catch (error) {
+        console.error('Error loading organization settings:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    setContactEmail(user?.email || '');
+    void loadOrganization();
+    void loadIntegrations();
+    void loadMembers();
+  }, [loadIntegrations, loadMembers, user?.email]);
+
+  useEffect(() => {
+    const section = searchParams.get('section');
+    if (section === 'general' || section === 'team' || section === 'integrations' || section === 'notifications') {
+      setActiveSection(section);
+    }
+  }, [searchParams]);
+
+  useEffect(() => {
+    const oauthAccessToken = sessionStorage.getItem(META_OAUTH_TOKEN_KEY);
+    if (!oauthAccessToken) {
+      return;
+    }
+
+    sessionStorage.removeItem(META_OAUTH_TOKEN_KEY);
+    setActiveSection('integrations');
+    setShowMetaConfig(true);
+    setMetaAccessToken(oauthAccessToken);
+    void loadMetaAccounts(oauthAccessToken);
+
+    const updated = new URLSearchParams(searchParams);
+    updated.delete('meta_oauth');
+    setSearchParams(updated, { replace: true });
+  }, [loadMetaAccounts, searchParams, setSearchParams]);
+
+  const handleSaveGeneralSettings = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setSaveMessage('');
+    setSaving(true);
+
+    try {
+      await organizationAPI.update({ name: organizationName });
+      setSaveMessage('Configuracoes salvas com sucesso.');
+    } catch (error) {
+      console.error('Error saving organization settings:', error);
+      setSaveMessage('Nao foi possivel salvar as alteracoes.');
+    } finally {
+      setSaving(false);
     }
   };
 

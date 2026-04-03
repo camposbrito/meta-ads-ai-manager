@@ -1,4 +1,4 @@
-import { createContext, useContext, useMemo, useState } from 'react';
+import { createContext, useContext, useState } from 'react';
 
 export type AppLanguage = 'pt' | 'en' | 'es';
 
@@ -120,14 +120,11 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
     return DICTIONARY[language][key] || fallback || key;
   };
 
-  const value = useMemo(
-    () => ({
-      language,
-      setLanguage,
-      t,
-    }),
-    [language]
-  );
+  const value = {
+    language,
+    setLanguage,
+    t,
+  };
 
   return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>;
 }
