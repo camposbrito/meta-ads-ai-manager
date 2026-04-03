@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { AuthRequest } from '../middleware/auth';
 import authService from '../services/AuthService';
 import { requireAuth, requireString } from '../utils/request';
+import { User, Organization } from '../models';
 
 export class AuthController {
   async register(req: Request, res: Response): Promise<void> {
@@ -91,14 +92,39 @@ export class AuthController {
   }
 
   async me(req: AuthRequest, res: Response): Promise<void> {
-    const user = requireAuth(req);
+    const authUser = requireAuth(req);
+    const user = await User.findByPk(authUser.userId, {
+      include: [
+        {
+          model: Organization,
+          as: 'organization',
+          attributes: ['id', 'name', 'plan', 'max_ad_accounts', 'max_daily_syncs', 'subscription_status', 'subscription_ends_at'],
+        },
+      ],
+      attributes: ['id', 'email', 'name', 'role', 'organization_id'],
+    });
+
+    if (!user || !user.organization) {
+      res.status(404).json({ error: 'User not found' });
+      return;
+    }
 
     res.json({
       user: {
-        id: user.userId,
+        id: user.id,
         email: user.email,
+        name: user.name,
         role: user.role,
-        organizationId: user.organizationId,
+        organizationId: user.organization_id,
+        organization: {
+          id: user.organization.id,
+          name: user.organization.name,
+          plan: user.organization.plan,
+          max_ad_accounts: user.organization.max_ad_accounts,
+          max_daily_syncs: user.organization.max_daily_syncs,
+          subscription_status: user.organization.subscription_status,
+          subscription_ends_at: user.organization.subscription_ends_at,
+        },
       },
     });
   }

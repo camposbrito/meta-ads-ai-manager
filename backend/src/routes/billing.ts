@@ -8,6 +8,7 @@ router.use(authenticate);
 
 router.get('/plans', billingController.getPlans);
 router.get('/subscription', billingController.getCurrentPlan);
+router.get('/support-options', billingController.getSupportOptions);
 router.post('/upgrade', billingController.upgradePlan);
 router.post('/cancel', billingController.cancelSubscription);
 

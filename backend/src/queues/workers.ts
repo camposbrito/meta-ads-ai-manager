@@ -3,6 +3,7 @@ import Redis from 'ioredis';
 import dotenv from 'dotenv';
 import SyncService from '../services/SyncService';
 import OptimizationEngine from '../services/OptimizationEngine';
+import AutoOptimizationService from '../services/AutoOptimizationService';
 
 dotenv.config();
 
@@ -43,8 +44,14 @@ const optimizationWorker = new Worker(
     const { adAccountId } = job.data;
     console.log(`Processing optimization job ${job.id} for ad account ${adAccountId}`);
     const result = await OptimizationEngine.evaluateAdAccount(adAccountId);
-    console.log(`Optimization job ${job.id} completed. Generated ${result.suggestionsGenerated} suggestions`);
-    return result;
+    const autoExecution = await AutoOptimizationService.processPendingSuggestions(adAccountId);
+    console.log(
+      `Optimization job ${job.id} completed. Generated ${result.suggestionsGenerated} suggestions, auto executed ${autoExecution.executed}.`
+    );
+    return {
+      ...result,
+      autoExecution,
+    };
   },
   { connection: queueConnection, concurrency: 3 }
 );

@@ -2,6 +2,7 @@ import { v4 as uuidv4 } from 'uuid';
 import MetaApiService, { MetaAd, MetaAdSet, MetaCampaign, MetaInsight } from './MetaApiService';
 import { Ad, AdAccount, AdSet, Campaign, Insight, Organization, SyncJob } from '../models';
 import { AppError } from '../middleware/errorHandler';
+import billingService, { PlanType } from './BillingService';
 
 interface SyncExecutionOptions {
   existingJobId?: string;
@@ -558,9 +559,12 @@ export class SyncService {
     }
 
     const today = this.formatDate(new Date());
+    const maxDailySyncs = billingService.getPlanLimits(
+      adAccount.organization.plan as PlanType
+    ).max_daily_syncs;
 
     if (adAccount.last_sync_date === today) {
-      return adAccount.daily_sync_count < adAccount.organization.max_daily_syncs;
+      return adAccount.daily_sync_count < maxDailySyncs;
     }
 
     return true;

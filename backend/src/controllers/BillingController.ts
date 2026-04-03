@@ -221,6 +221,65 @@ export class BillingController {
     }
   }
 
+  async getSupportOptions(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      if (!req.user) {
+        res.status(401).json({ error: 'Authentication required' });
+        return;
+      }
+
+      const organization = await Organization.findByPk(req.user.organizationId, {
+        attributes: ['plan'],
+      });
+
+      if (!organization) {
+        res.status(404).json({ error: 'Organization not found' });
+        return;
+      }
+
+      const plan = organization.plan as PlanType;
+      const limits = billingService.getPlanLimits(plan);
+
+      const optionsByPlan: Record<PlanType, Array<{ channel: string; label: string; value: string }>> = {
+        free: [
+          {
+            channel: 'community',
+            label: 'Comunidade',
+            value: process.env.SUPPORT_COMMUNITY_URL || 'https://github.com/camposbrito/meta-ads-ai-manager/discussions',
+          },
+        ],
+        pro: [
+          {
+            channel: 'email',
+            label: 'Email',
+            value: process.env.SUPPORT_EMAIL || 'suporte@metaadsai.local',
+          },
+        ],
+        agency: [
+          {
+            channel: 'priority_email',
+            label: 'Priority Email',
+            value: process.env.SUPPORT_PRIORITY_EMAIL || process.env.SUPPORT_EMAIL || 'priority@metaadsai.local',
+          },
+          {
+            channel: 'dedicated_channel',
+            label: 'Canal Dedicado',
+            value: process.env.SUPPORT_DEDICATED_CHANNEL_URL || 'https://wa.me/5500000000000',
+          },
+        ],
+      };
+
+      res.json({
+        support: {
+          support_level: limits.support_level,
+          channels: optionsByPlan[plan],
+        },
+      });
+    } catch (error) {
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+
   async handleStripeWebhook(req: Request, res: Response): Promise<void> {
     try {
       const signature = req.headers['stripe-signature'];

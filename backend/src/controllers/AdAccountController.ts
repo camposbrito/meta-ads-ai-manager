@@ -5,6 +5,7 @@ import { AdAccount, Organization, SyncJob } from '../models';
 import { encrypt } from '../services/EncryptionService';
 import MetaApiService from '../services/MetaApiService';
 import SyncService from '../services/SyncService';
+import billingService, { PlanType } from '../services/BillingService';
 import sequelize from '../config/database';
 import { AppError } from '../middleware/errorHandler';
 import { requireAuth, requireString } from '../utils/request';
@@ -61,14 +62,28 @@ export class AdAccountController {
         throw new AppError('Organization not found', 404);
       }
 
+      const planLimits = billingService.getPlanLimits(organization.plan as PlanType);
+      if (
+        organization.max_ad_accounts !== planLimits.max_ad_accounts ||
+        organization.max_daily_syncs !== planLimits.max_daily_syncs
+      ) {
+        await organization.update(
+          {
+            max_ad_accounts: planLimits.max_ad_accounts,
+            max_daily_syncs: planLimits.max_daily_syncs,
+          },
+          { transaction }
+        );
+      }
+
       const currentAccountCount = await AdAccount.count({
         where: { organization_id: user.organizationId, is_active: true },
         transaction,
       });
 
-      if (currentAccountCount >= organization.max_ad_accounts) {
+      if (currentAccountCount >= planLimits.max_ad_accounts) {
         throw new AppError('Maximum number of ad accounts reached for your plan', 403, {
-          max: organization.max_ad_accounts,
+          max: planLimits.max_ad_accounts,
         });
       }
 
