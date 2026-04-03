@@ -119,7 +119,12 @@ export const adAccountAPI = {
   getMetaAccounts: (accessToken: string) =>
     api.post<{ accounts: MetaAvailableAdAccount[] }>('/ad-accounts/meta/accounts', { accessToken }),
   connect: (data: { accessToken: string; accountId: string }) => api.post('/ad-accounts/connect', data),
-  disconnect: (id: string) => api.delete(`/ad-accounts/${id}`),
+  disconnect: (id: string, options?: { deleteHistory?: boolean }) =>
+    api.delete<{ message: string }>(`/ad-accounts/${id}`, {
+      params: {
+        delete_history: options?.deleteHistory ? 'true' : 'false',
+      },
+    }),
   sync: (id: string) =>
     api.post<{ message: string; job: Pick<SyncJob, 'id' | 'status'> }>(`/ad-accounts/${id}/sync`),
   getSyncStatus: (id: string) => api.get<AdAccountSyncStatus>(`/ad-accounts/${id}/sync-status`),

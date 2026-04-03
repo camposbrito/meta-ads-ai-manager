@@ -18,6 +18,7 @@ import {
   Loader2,
   MousePointer,
   Target,
+  Trash2,
   TrendingUp,
   Users,
 } from 'lucide-react';
@@ -91,6 +92,7 @@ export function DashboardPage() {
   const [selectedDays, setSelectedDays] = useState(30);
   const [syncingAccounts, setSyncingAccounts] = useState<Record<string, boolean>>({});
   const [syncingAllAccounts, setSyncingAllAccounts] = useState(false);
+  const [removingAccountId, setRemovingAccountId] = useState<string | null>(null);
   const [syncStatusByAccount, setSyncStatusByAccount] = useState<Record<string, AdAccountSyncStatus>>({});
   const [loadingSyncStatusByAccount, setLoadingSyncStatusByAccount] = useState<Record<string, boolean>>({});
   const [expandedJobsByAccount, setExpandedJobsByAccount] = useState<Record<string, boolean>>({});
@@ -473,6 +475,57 @@ export function DashboardPage() {
       await loadAllSyncStatus(adAccounts);
     } finally {
       setSyncingAllAccounts(false);
+    }
+  };
+
+  const handleRemoveAccount = async (account: AdAccount) => {
+    const shouldRemove = window.confirm(
+      `Deseja remover a conta "${account.name}" do painel?`
+    );
+
+    if (!shouldRemove) {
+      return;
+    }
+
+    const shouldKeepHistory = window.confirm(
+      'Deseja manter o histórico local desta conta?\n\nOK = manter histórico\nCancelar = apagar histórico'
+    );
+
+    setRemovingAccountId(account.id);
+    clearConnectAlerts();
+
+    try {
+      const response = await adAccountAPI.disconnect(account.id, {
+        deleteHistory: !shouldKeepHistory,
+      });
+
+      setConnectMessage(response.data.message || 'Conta removida com sucesso.');
+
+      setSyncStatusByAccount((prev) => {
+        const next = { ...prev };
+        delete next[account.id];
+        return next;
+      });
+      setSyncFeedbackByAccount((prev) => {
+        const next = { ...prev };
+        delete next[account.id];
+        return next;
+      });
+      setExpandedJobsByAccount((prev) => {
+        const next = { ...prev };
+        delete next[account.id];
+        return next;
+      });
+
+      await loadDashboardData();
+    } catch (error) {
+      const errorMessage =
+        (error as { response?: { data?: { error?: string } } }).response?.data?.error ||
+        'Não foi possível remover a conta agora.';
+      setConnectError(errorMessage);
+      console.error('Error removing ad account:', error);
+    } finally {
+      setRemovingAccountId(null);
     }
   };
 
@@ -918,6 +971,17 @@ export function DashboardPage() {
                         isLoading={isSyncing}
                       >
                         Sincronizar
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="text-red-600 hover:bg-red-50"
+                        onClick={() => void handleRemoveAccount(account)}
+                        isLoading={removingAccountId === account.id}
+                        disabled={isSyncing}
+                      >
+                        <Trash2 className="mr-1 h-4 w-4" />
+                        Remover
                       </Button>
                       <Button
                         size="sm"

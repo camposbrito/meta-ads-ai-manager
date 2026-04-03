@@ -79,16 +79,16 @@ export function CampaignsPage() {
     return acc;
   }, {});
 
-  const accountGroups = Object.entries(groupedCampaigns).map(([key, accountCampaigns]) => {
-    const [, accountName] = key.split('::');
-    return {
-      key,
-      accountName,
-      campaigns: accountCampaigns,
-    };
-  });
-
-  const hasMultipleAccounts = accountGroups.length > 1;
+  const accountGroups = Object.entries(groupedCampaigns)
+    .map(([key, accountCampaigns]) => {
+      const [, accountName] = key.split('::');
+      return {
+        key,
+        accountName,
+        campaigns: accountCampaigns,
+      };
+    })
+    .sort((a, b) => a.accountName.localeCompare(b.accountName));
 
   const getStatusColor = (status: string) => {
     switch (status.toLowerCase()) {
@@ -346,19 +346,15 @@ export function CampaignsPage() {
         </Card>
       ) : (
         <div className="space-y-4">
-          {hasMultipleAccounts ? (
-            accountGroups.map((group) => (
-              <Card
-                key={group.key}
-                title={group.accountName}
-                description={`${group.campaigns.length} campanha(s) no período selecionado`}
-              >
-                {renderCampaignTable(group.campaigns)}
-              </Card>
-            ))
-          ) : (
-            <Card>{renderCampaignTable(sortedCampaigns)}</Card>
-          )}
+          {accountGroups.map((group) => (
+            <Card
+              key={group.key}
+              title={group.accountName}
+              description={`${group.campaigns.length} campanha(s) no período selecionado`}
+            >
+              {renderCampaignTable(group.campaigns)}
+            </Card>
+          ))}
         </div>
       )}
     </div>

@@ -1,7 +1,17 @@
 import { Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { AuthRequest } from '../middleware/auth';
-import { AdAccount, Organization, SyncJob } from '../models';
+import {
+  Ad,
+  AdAccount,
+  AdSet,
+  Campaign,
+  ExecutedAction,
+  Insight,
+  OptimizationSuggestion,
+  Organization,
+  SyncJob,
+} from '../models';
 import { encrypt } from '../services/EncryptionService';
 import MetaApiService from '../services/MetaApiService';
 import SyncService from '../services/SyncService';
@@ -11,6 +21,19 @@ import { AppError } from '../middleware/errorHandler';
 import { requireAuth, requireString } from '../utils/request';
 
 export class AdAccountController {
+  private parseDeleteHistoryFlag(value: unknown): boolean {
+    if (typeof value === 'boolean') {
+      return value;
+    }
+
+    if (typeof value === 'string') {
+      const normalized = value.trim().toLowerCase();
+      return normalized === 'true' || normalized === '1' || normalized === 'yes';
+    }
+
+    return false;
+  }
+
   async list(req: AuthRequest, res: Response): Promise<void> {
     const user = requireAuth(req);
 
@@ -105,24 +128,39 @@ export class AdAccountController {
         transaction,
       });
 
-      if (existingAccount) {
+      let adAccount: AdAccount;
+      if (existingAccount && existingAccount.is_active) {
         throw new AppError('Ad account is already connected', 409);
       }
 
-      const adAccount = await AdAccount.create(
-        {
-          id: uuidv4(),
-          organization_id: user.organizationId,
-          meta_account_id: normalizedMetaAccountId,
-          meta_business_id: metaAccount.business?.id || null,
-          name: metaAccount.name,
-          currency: metaAccount.currency,
-          access_token_encrypted: encrypt(accessToken),
-          is_active: true,
-          daily_sync_count: 0,
-        },
-        { transaction }
-      );
+      if (existingAccount) {
+        await existingAccount.update(
+          {
+            meta_business_id: metaAccount.business?.id || null,
+            name: metaAccount.name,
+            currency: metaAccount.currency,
+            access_token_encrypted: encrypt(accessToken),
+            is_active: true,
+          },
+          { transaction }
+        );
+        adAccount = existingAccount;
+      } else {
+        adAccount = await AdAccount.create(
+          {
+            id: uuidv4(),
+            organization_id: user.organizationId,
+            meta_account_id: normalizedMetaAccountId,
+            meta_business_id: metaAccount.business?.id || null,
+            name: metaAccount.name,
+            currency: metaAccount.currency,
+            access_token_encrypted: encrypt(accessToken),
+            is_active: true,
+            daily_sync_count: 0,
+          },
+          { transaction }
+        );
+      }
 
       const syncJob = await SyncJob.create(
         {
@@ -161,17 +199,89 @@ export class AdAccountController {
   async disconnect(req: AuthRequest, res: Response): Promise<void> {
     const user = requireAuth(req);
     const { id } = req.params;
+    const deleteHistory = this.parseDeleteHistoryFlag(
+      typeof req.query.delete_history !== 'undefined' ? req.query.delete_history : req.body?.delete_history
+    );
+    const transaction = await sequelize.transaction();
 
-    const adAccount = await AdAccount.findOne({
-      where: { id, organization_id: user.organizationId },
-    });
+    try {
+      const adAccount = await AdAccount.findOne({
+        where: { id, organization_id: user.organizationId },
+        transaction,
+      });
 
-    if (!adAccount) {
-      throw new AppError('Ad account not found', 404);
+      if (!adAccount) {
+        throw new AppError('Ad account not found', 404);
+      }
+
+      if (!deleteHistory) {
+        await adAccount.update({ is_active: false }, { transaction });
+        await transaction.commit();
+        res.json({ message: 'Ad account disconnected. History preserved.' });
+        return;
+      }
+
+      const campaigns = await Campaign.findAll({
+        where: { ad_account_id: adAccount.id },
+        attributes: ['id'],
+        transaction,
+      });
+      const campaignIds = campaigns.map((campaign) => campaign.id);
+
+      const adSets = campaignIds.length
+        ? await AdSet.findAll({
+            where: { campaign_id: campaignIds },
+            attributes: ['id'],
+            transaction,
+          })
+        : [];
+      const adSetIds = adSets.map((adSet) => adSet.id);
+
+      if (adSetIds.length) {
+        await Ad.destroy({
+          where: { ad_set_id: adSetIds },
+          transaction,
+        });
+      }
+
+      if (campaignIds.length) {
+        await AdSet.destroy({
+          where: { campaign_id: campaignIds },
+          transaction,
+        });
+      }
+
+      await Promise.all([
+        Campaign.destroy({
+          where: { ad_account_id: adAccount.id },
+          transaction,
+        }),
+        Insight.destroy({
+          where: { ad_account_id: adAccount.id },
+          transaction,
+        }),
+        OptimizationSuggestion.destroy({
+          where: { ad_account_id: adAccount.id },
+          transaction,
+        }),
+        ExecutedAction.destroy({
+          where: { ad_account_id: adAccount.id },
+          transaction,
+        }),
+        SyncJob.destroy({
+          where: { ad_account_id: adAccount.id },
+          transaction,
+        }),
+      ]);
+
+      await adAccount.destroy({ transaction });
+      await transaction.commit();
+
+      res.json({ message: 'Ad account removed. History deleted.' });
+    } catch (error) {
+      await transaction.rollback();
+      throw error;
     }
-
-    await adAccount.update({ is_active: false });
-    res.json({ message: 'Ad account disconnected' });
   }
 
   async sync(req: AuthRequest, res: Response): Promise<void> {
