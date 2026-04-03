@@ -6,10 +6,10 @@ const router = Router();
 
 router.use(authenticate);
 
-router.get('/overview', dashboardController.getOverview);
-router.get('/performance', dashboardController.getPerformanceChart);
-router.get('/campaigns', dashboardController.getCampaigns);
-router.get('/campaigns/:campaignId/ads', dashboardController.getCampaignAds);
-router.get('/top-ads', dashboardController.getTopAds);
+router.get('/overview', dashboardController.getOverview.bind(dashboardController));
+router.get('/performance', dashboardController.getPerformanceChart.bind(dashboardController));
+router.get('/campaigns', dashboardController.getCampaigns.bind(dashboardController));
+router.get('/campaigns/:campaignId/ads', dashboardController.getCampaignAds.bind(dashboardController));
+router.get('/top-ads', dashboardController.getTopAds.bind(dashboardController));
 
 export default router;

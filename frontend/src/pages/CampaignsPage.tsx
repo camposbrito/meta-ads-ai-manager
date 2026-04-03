@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { BarChart3, ChevronDown, ChevronRight } from 'lucide-react';
 import { dashboardAPI } from '../services/api';
 import { Card } from '../components/Card';
@@ -6,10 +7,14 @@ import { Button } from '../components/Button';
 import type { Ad, Campaign } from '../types';
 
 export function CampaignsPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<string>('all');
-  const [selectedDays, setSelectedDays] = useState<number>(30);
+  const [selectedDays, setSelectedDays] = useState<number>(() => {
+    const parsed = Number.parseInt(searchParams.get('days') || '30', 10);
+    return [7, 30, 90].includes(parsed) ? parsed : 30;
+  });
   const [expandedCampaignIds, setExpandedCampaignIds] = useState<Record<string, boolean>>({});
   const [campaignAds, setCampaignAds] = useState<Record<string, Ad[]>>({});
   const [loadingCampaignAds, setLoadingCampaignAds] = useState<Record<string, boolean>>({});
@@ -35,7 +40,35 @@ export function CampaignsPage() {
     ? campaigns
     : campaigns.filter((c) => (c.status || '').toLowerCase() === filter.toLowerCase());
 
-  const groupedCampaigns = filteredCampaigns.reduce<Record<string, Campaign[]>>((acc, campaign) => {
+  const sortField = searchParams.get('sort');
+  const sortOrder = searchParams.get('order') === 'asc' ? 'asc' : 'desc';
+
+  const sortedCampaigns = [...filteredCampaigns].sort((a, b) => {
+    if (!sortField) {
+      return 0;
+    }
+
+    const getNumericValue = (campaign: Campaign): number => {
+      switch (sortField) {
+        case 'spend':
+          return Number(campaign.spend || 0);
+        case 'impressions':
+          return Number(campaign.impressions || 0);
+        case 'clicks':
+          return Number(campaign.clicks || 0);
+        case 'conversions':
+          return Number(campaign.conversions || 0);
+        default:
+          return 0;
+      }
+    };
+
+    const aValue = getNumericValue(a);
+    const bValue = getNumericValue(b);
+    return sortOrder === 'asc' ? aValue - bValue : bValue - aValue;
+  });
+
+  const groupedCampaigns = sortedCampaigns.reduce<Record<string, Campaign[]>>((acc, campaign) => {
     const key = `${campaign.ad_account_id || 'no-account'}::${campaign.ad_account_name || 'Conta desconhecida'}`;
     if (!acc[key]) {
       acc[key] = [];
@@ -262,13 +295,24 @@ export function CampaignsPage() {
 
   return (
     <div className="space-y-6">
+      {sortField && (
+        <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+          Lista ordenada por <strong>{sortField}</strong> ({sortOrder === 'asc' ? 'crescente' : 'decrescente'}).
+        </div>
+      )}
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-900">Campanhas</h1>
 
         <div className="flex items-center gap-2">
           <select
             value={selectedDays}
-            onChange={(e) => setSelectedDays(Number(e.target.value))}
+            onChange={(e) => {
+              const days = Number(e.target.value);
+              setSelectedDays(days);
+              const nextParams = new URLSearchParams(searchParams);
+              nextParams.set('days', String(days));
+              setSearchParams(nextParams, { replace: true });
+            }}
             className="border border-gray-300 rounded-lg px-3 py-2 text-sm"
           >
             <option value={7}>Últimos 7 dias</option>
@@ -311,7 +355,7 @@ export function CampaignsPage() {
               </Card>
             ))
           ) : (
-            <Card>{renderCampaignTable(filteredCampaigns)}</Card>
+            <Card>{renderCampaignTable(sortedCampaigns)}</Card>
           )}
         </div>
       )}

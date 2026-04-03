@@ -22,9 +22,32 @@ interface Overview {
   total_impressions: number;
   total_clicks: number;
   total_conversions: number;
+  total_revenue: number;
   ctr: number;
   cpc: number;
+  cpa: number;
   roas: number;
+}
+
+interface OverviewComparison {
+  spend_change_pct: number;
+  impressions_change_pct: number;
+  clicks_change_pct: number;
+  conversions_change_pct: number;
+  revenue_change_pct: number;
+  ctr_change_pct: number;
+  cpc_change_pct: number;
+  cpa_change_pct: number;
+  roas_change_pct: number;
+}
+
+interface DashboardMeta {
+  source_level: 'account' | 'campaign' | 'ad';
+  window_days: number;
+  compared_window_days?: number;
+  period?: string;
+  compared_period?: string;
+  last_synced_at?: string | null;
 }
 
 const META_OAUTH_STATE_KEY = 'meta_oauth_state';
@@ -36,10 +59,15 @@ export function DashboardPage() {
 
   const [loading, setLoading] = useState(true);
   const [overview, setOverview] = useState<Overview | null>(null);
+  const [overviewComparison, setOverviewComparison] = useState<OverviewComparison | null>(null);
+  const [overviewMeta, setOverviewMeta] = useState<DashboardMeta | null>(null);
   const [performanceData, setPerformanceData] = useState<Insight[]>([]);
+  const [performanceMeta, setPerformanceMeta] = useState<DashboardMeta | null>(null);
   const [adAccounts, setAdAccounts] = useState<AdAccount[]>([]);
+  const [pendingSuggestions, setPendingSuggestions] = useState<number>(0);
   const [selectedDays, setSelectedDays] = useState(30);
   const [syncingAccountId, setSyncingAccountId] = useState<string | null>(null);
+  const [syncingAllAccounts, setSyncingAllAccounts] = useState(false);
 
   const [showConnectForm, setShowConnectForm] = useState(false);
   const [metaAccessToken, setMetaAccessToken] = useState('');
@@ -70,8 +98,23 @@ export function DashboardPage() {
         adAccountAPI.list(),
       ]);
 
-      setOverview(overviewRes.data.overview as Overview);
-      setPerformanceData(performanceRes.data.data);
+      const overviewData = overviewRes.data as {
+        overview: Overview;
+        comparison?: OverviewComparison;
+        meta?: DashboardMeta;
+        pending_suggestions?: number;
+      };
+      const performancePayload = performanceRes.data as {
+        data: Insight[];
+        meta?: DashboardMeta;
+      };
+
+      setOverview(overviewData.overview);
+      setOverviewComparison(overviewData.comparison || null);
+      setOverviewMeta(overviewData.meta || null);
+      setPendingSuggestions(overviewData.pending_suggestions || 0);
+      setPerformanceMeta(performancePayload.meta || null);
+      setPerformanceData(performancePayload.data);
       setAdAccounts(accountsRes.data.accounts);
     } catch (error) {
       console.error('Error loading dashboard:', error);
@@ -216,6 +259,30 @@ export function DashboardPage() {
     }
   };
 
+  const handleSyncAll = async () => {
+    if (adAccounts.length === 0) {
+      return;
+    }
+
+    setSyncingAllAccounts(true);
+    try {
+      for (const account of adAccounts) {
+        try {
+          await adAccountAPI.sync(account.id);
+        } catch (error) {
+          console.error(`Error syncing account ${account.id}:`, error);
+        }
+      }
+      await loadDashboardData();
+    } finally {
+      setSyncingAllAccounts(false);
+    }
+  };
+
+  const handleCampaignDrillDown = (metric: 'spend' | 'impressions' | 'clicks' | 'conversions') => {
+    navigate(`/campaigns?sort=${metric}&order=desc&days=${selectedDays}`);
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -229,6 +296,22 @@ export function DashboardPage() {
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
         <div className="flex items-center space-x-2">
+          {overviewMeta && (
+            <>
+              <span className="rounded-full bg-blue-50 text-blue-700 px-3 py-1 text-xs font-medium">
+                Fonte: {overviewMeta.source_level}
+              </span>
+              <span className="rounded-full bg-gray-100 text-gray-700 px-3 py-1 text-xs font-medium">
+                Janela: {overviewMeta.window_days}d
+              </span>
+              <span className="rounded-full bg-gray-100 text-gray-700 px-3 py-1 text-xs font-medium">
+                Última sync:{' '}
+                {overviewMeta.last_synced_at
+                  ? new Date(overviewMeta.last_synced_at).toLocaleString()
+                  : 'Nunca'}
+              </span>
+            </>
+          )}
           <select
             value={selectedDays}
             onChange={(e) => setSelectedDays(Number(e.target.value))}
@@ -246,21 +329,33 @@ export function DashboardPage() {
           title="Gasto Total"
           value={`R$ ${overview?.total_spend?.toFixed(2) || '0,00'}`}
           icon={<DollarSign className="h-6 w-6" />}
+          change={overviewComparison?.spend_change_pct}
+          onClick={() => handleCampaignDrillDown('spend')}
+          actionLabel="Ver campanhas com maior gasto"
         />
         <MetricCard
           title="Impressoes"
           value={overview?.total_impressions?.toLocaleString() || '0'}
           icon={<Eye className="h-6 w-6" />}
+          change={overviewComparison?.impressions_change_pct}
+          onClick={() => handleCampaignDrillDown('impressions')}
+          actionLabel="Ver campanhas com mais impressões"
         />
         <MetricCard
           title="Cliques"
           value={overview?.total_clicks?.toLocaleString() || '0'}
           icon={<MousePointer className="h-6 w-6" />}
+          change={overviewComparison?.clicks_change_pct}
+          onClick={() => handleCampaignDrillDown('clicks')}
+          actionLabel="Ver campanhas com mais cliques"
         />
         <MetricCard
           title="Conversoes"
           value={overview?.total_conversions?.toLocaleString() || '0'}
           icon={<Target className="h-6 w-6" />}
+          change={overviewComparison?.conversions_change_pct}
+          onClick={() => handleCampaignDrillDown('conversions')}
+          actionLabel="Ver campanhas com mais conversões"
         />
       </div>
 
@@ -270,6 +365,12 @@ export function DashboardPage() {
             <div>
               <p className="text-sm text-gray-600">CTR</p>
               <p className="text-2xl font-bold text-gray-900">{overview?.ctr?.toFixed(2) || '0'}%</p>
+              {overviewComparison && (
+                <p className="text-xs text-gray-500 mt-1">
+                  {overviewComparison.ctr_change_pct >= 0 ? '+' : ''}
+                  {overviewComparison.ctr_change_pct.toFixed(1)}% vs período anterior
+                </p>
+              )}
             </div>
             <TrendingUp className="h-8 w-8 text-blue-600" />
           </div>
@@ -279,6 +380,12 @@ export function DashboardPage() {
             <div>
               <p className="text-sm text-gray-600">CPC</p>
               <p className="text-2xl font-bold text-gray-900">R$ {overview?.cpc?.toFixed(2) || '0,00'}</p>
+              {overviewComparison && (
+                <p className="text-xs text-gray-500 mt-1">
+                  {overviewComparison.cpc_change_pct >= 0 ? '+' : ''}
+                  {overviewComparison.cpc_change_pct.toFixed(1)}% vs período anterior
+                </p>
+              )}
             </div>
             <DollarSign className="h-8 w-8 text-green-600" />
           </div>
@@ -288,6 +395,12 @@ export function DashboardPage() {
             <div>
               <p className="text-sm text-gray-600">ROAS</p>
               <p className="text-2xl font-bold text-gray-900">{overview?.roas?.toFixed(2) || '0'}x</p>
+              {overviewComparison && (
+                <p className="text-xs text-gray-500 mt-1">
+                  {overviewComparison.roas_change_pct >= 0 ? '+' : ''}
+                  {overviewComparison.roas_change_pct.toFixed(1)}% vs período anterior
+                </p>
+              )}
             </div>
             <TrendingUp className="h-8 w-8 text-purple-600" />
           </div>
@@ -295,26 +408,54 @@ export function DashboardPage() {
       </div>
 
       <Card title="Desempenho ao Longo do Tempo" description="Gasto e conversoes por dia">
-        <div className="h-80">
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={performanceData}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="date" tick={{ fontSize: 12 }} />
-              <YAxis yAxisId="left" tick={{ fontSize: 12 }} />
-              <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 12 }} />
-              <Tooltip />
-              <Legend />
-              <Line yAxisId="left" type="monotone" dataKey="spend" stroke="#2563eb" name="Gasto (R$)" />
-              <Line
-                yAxisId="right"
-                type="monotone"
-                dataKey="conversions"
-                stroke="#16a34a"
-                name="Conversoes"
-              />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
+        {performanceMeta && (
+          <div className="mb-3 flex flex-wrap gap-2">
+            <span className="rounded-full bg-blue-50 text-blue-700 px-3 py-1 text-xs font-medium">
+              Fonte: {performanceMeta.source_level}
+            </span>
+            <span className="rounded-full bg-gray-100 text-gray-700 px-3 py-1 text-xs font-medium">
+              Período: {performanceMeta.period || `${selectedDays} dias`}
+            </span>
+          </div>
+        )}
+        {performanceData.length === 0 ? (
+          <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 px-4 py-8 text-center">
+            <p className="text-sm text-gray-600">
+              Sem dados suficientes para o período selecionado.
+            </p>
+            {adAccounts.length > 0 && (
+              <Button
+                className="mt-3"
+                variant="secondary"
+                onClick={handleSyncAll}
+                isLoading={syncingAllAccounts}
+              >
+                Sincronizar agora
+              </Button>
+            )}
+          </div>
+        ) : (
+          <div className="h-80">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={performanceData}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="date" tick={{ fontSize: 12 }} />
+                <YAxis yAxisId="left" tick={{ fontSize: 12 }} />
+                <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 12 }} />
+                <Tooltip />
+                <Legend />
+                <Line yAxisId="left" type="monotone" dataKey="spend" stroke="#2563eb" name="Gasto (R$)" />
+                <Line
+                  yAxisId="right"
+                  type="monotone"
+                  dataKey="conversions"
+                  stroke="#16a34a"
+                  name="Conversoes"
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        )}
       </Card>
 
       <Card
@@ -488,7 +629,31 @@ export function DashboardPage() {
       </Card>
 
       <Card title="Sugestoes Pendentes" description="Otimizacoes recomendadas pela IA">
-        <div className="text-center py-8 text-gray-500">Nenhuma sugestao pendente no momento</div>
+        {pendingSuggestions > 0 ? (
+          <div className="rounded-lg border border-yellow-200 bg-yellow-50 px-4 py-4">
+            <p className="text-sm text-yellow-800">
+              Você tem {pendingSuggestions} sugestão(ões) pendente(s) para revisar.
+            </p>
+            <Button className="mt-3" size="sm" onClick={() => navigate('/optimization')}>
+              Abrir Otimização
+            </Button>
+          </div>
+        ) : (
+          <div className="text-center py-8 text-gray-500">
+            <p>Sem sugestões pendentes no momento.</p>
+            <p className="text-sm mt-1">Sincronize as contas e execute análise para gerar novas recomendações.</p>
+            <div className="mt-3 flex justify-center gap-2">
+              {adAccounts.length > 0 && (
+                <Button size="sm" variant="secondary" onClick={handleSyncAll} isLoading={syncingAllAccounts}>
+                  Sincronizar agora
+                </Button>
+              )}
+              <Button size="sm" onClick={() => navigate('/optimization')}>
+                Executar análise
+              </Button>
+            </div>
+          </div>
+        )}
       </Card>
     </div>
   );

@@ -19,10 +19,17 @@ export class DashboardController {
     const daysNum = parsePositiveInt(req.query.days, 'days', 30, { min: 1, max: 365 });
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - daysNum);
+    const endDate = new Date();
+    const previousEndDate = new Date(startDate);
+    previousEndDate.setDate(previousEndDate.getDate() - 1);
+    const previousStartDate = new Date(previousEndDate);
+    previousStartDate.setDate(previousStartDate.getDate() - (daysNum - 1));
+    const periodLabel = `${this.formatDate(startDate)}..${this.formatDate(endDate)}`;
+    const previousPeriodLabel = `${this.formatDate(previousStartDate)}..${this.formatDate(previousEndDate)}`;
 
     const adAccounts = await AdAccount.findAll({
       where: { organization_id: user.organizationId, is_active: true },
-      attributes: ['id'],
+      attributes: ['id', 'last_synced_at'],
     });
 
     const adAccountIds = adAccounts.map((account) => account.id);
@@ -38,18 +45,22 @@ export class DashboardController {
       limit: 5,
     });
 
+    const latestSyncAt = this.getLatestSyncAt(adAccounts);
+    const emptyOverview = this.toOverviewPayload(this.emptyPerformance());
+    const emptyComparison = this.toComparisonPayload(emptyOverview, emptyOverview);
+
     if (adAccountIds.length === 0) {
       res.json({
-        overview: {
-          total_spend: 0,
-          total_impressions: 0,
-          total_clicks: 0,
-          total_conversions: 0,
-          total_revenue: 0,
-          ctr: 0,
-          cpc: 0,
-          cpa: 0,
-          roas: 0,
+        overview: emptyOverview,
+        previous_overview: emptyOverview,
+        comparison: emptyComparison,
+        meta: {
+          source_level: 'account',
+          window_days: daysNum,
+          compared_window_days: daysNum,
+          period: periodLabel,
+          compared_period: previousPeriodLabel,
+          last_synced_at: latestSyncAt,
         },
         connected_accounts: 0,
         pending_suggestions: pendingSuggestions,
@@ -58,45 +69,26 @@ export class DashboardController {
       return;
     }
 
-    const totalsRow = (await Insight.findOne({
-      where: {
-        ad_account_id: { [Op.in]: adAccountIds },
-        campaign_id: null,
-        ad_set_id: null,
-        ad_id: null,
-        date: { [Op.gte]: startDate.toISOString().split('T')[0] },
-      },
-      attributes: [
-        [Insight.sequelize!.fn('COALESCE', Insight.sequelize!.fn('SUM', Insight.sequelize!.col('spend')), 0), 'spend'],
-        [Insight.sequelize!.fn('COALESCE', Insight.sequelize!.fn('SUM', Insight.sequelize!.col('impressions')), 0), 'impressions'],
-        [Insight.sequelize!.fn('COALESCE', Insight.sequelize!.fn('SUM', Insight.sequelize!.col('clicks')), 0), 'clicks'],
-        [Insight.sequelize!.fn('COALESCE', Insight.sequelize!.fn('SUM', Insight.sequelize!.col('conversions')), 0), 'conversions'],
-        [Insight.sequelize!.fn('COALESCE', Insight.sequelize!.fn('SUM', Insight.sequelize!.col('conversion_value')), 0), 'conversion_value'],
-        [Insight.sequelize!.fn('COALESCE', Insight.sequelize!.fn('SUM', Insight.sequelize!.col('reach')), 0), 'reach'],
-      ],
-      raw: true,
-    })) as Record<string, string> | null;
-
-    const totals = calculatePerformanceMetrics({
-      spend: Number(totalsRow?.spend || 0),
-      impressions: Number(totalsRow?.impressions || 0),
-      clicks: Number(totalsRow?.clicks || 0),
-      conversions: Number(totalsRow?.conversions || 0),
-      conversionValue: Number(totalsRow?.conversion_value || 0),
-      reach: Number(totalsRow?.reach || 0),
+    const totals = await this.getAccountLevelTotals(adAccountIds, {
+      [Op.between]: [this.formatDate(startDate), this.formatDate(endDate)],
     });
+    const previousTotals = await this.getAccountLevelTotals(adAccountIds, {
+      [Op.between]: [this.formatDate(previousStartDate), this.formatDate(previousEndDate)],
+    });
+    const overviewPayload = this.toOverviewPayload(totals);
+    const previousOverviewPayload = this.toOverviewPayload(previousTotals);
 
     res.json({
-      overview: {
-        total_spend: totals.spend,
-        total_impressions: totals.impressions,
-        total_clicks: totals.clicks,
-        total_conversions: totals.conversions,
-        total_revenue: totals.conversionValue,
-        ctr: totals.ctr * 100,
-        cpc: totals.cpc,
-        cpa: totals.cpa,
-        roas: totals.roas,
+      overview: overviewPayload,
+      previous_overview: previousOverviewPayload,
+      comparison: this.toComparisonPayload(overviewPayload, previousOverviewPayload),
+      meta: {
+        source_level: 'account',
+        window_days: daysNum,
+        compared_window_days: daysNum,
+        period: periodLabel,
+        compared_period: previousPeriodLabel,
+        last_synced_at: latestSyncAt,
       },
       connected_accounts: adAccounts.length,
       pending_suggestions: pendingSuggestions,
@@ -115,10 +107,11 @@ export class DashboardController {
     const daysNum = parsePositiveInt(req.query.days, 'days', 30, { min: 1, max: 365 });
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - daysNum);
+    const endDate = new Date();
 
     const adAccounts = await AdAccount.findAll({
       where: { organization_id: user.organizationId, is_active: true },
-      attributes: ['id'],
+      attributes: ['id', 'last_synced_at'],
     });
 
     const insights = await Insight.findAll({
@@ -127,7 +120,9 @@ export class DashboardController {
         campaign_id: null,
         ad_set_id: null,
         ad_id: null,
-        date: { [Op.gte]: startDate.toISOString().split('T')[0] },
+        date: {
+          [Op.between]: [this.formatDate(startDate), this.formatDate(endDate)],
+        },
       },
       order: [['date', 'ASC']],
     });
@@ -163,6 +158,12 @@ export class DashboardController {
         cpa: item.conversions > 0 ? (item.spend / item.conversions).toFixed(2) : 0,
         roas: item.spend > 0 ? (item.conversion_value / item.spend).toFixed(2) : 0,
       })),
+      meta: {
+        source_level: 'account',
+        window_days: daysNum,
+        period: `${this.formatDate(startDate)}..${this.formatDate(endDate)}`,
+        last_synced_at: this.getLatestSyncAt(adAccounts),
+      },
     });
   }
 
@@ -174,7 +175,7 @@ export class DashboardController {
 
     const adAccounts = await AdAccount.findAll({
       where: { organization_id: user.organizationId, is_active: true },
-      attributes: ['id'],
+      attributes: ['id', 'last_synced_at'],
     });
 
     const campaigns = await Campaign.findAll({
@@ -265,6 +266,12 @@ export class DashboardController {
           roas: metrics.roas,
         };
       }),
+      meta: {
+        source_level: 'campaign',
+        window_days: daysNum,
+        period: `${this.formatDate(startDate)}..${this.formatDate(new Date())}`,
+        last_synced_at: this.getLatestSyncAt(adAccounts),
+      },
     });
   }
 
@@ -364,7 +371,7 @@ export class DashboardController {
 
     const adAccounts = await AdAccount.findAll({
       where: { organization_id: user.organizationId, is_active: true },
-      attributes: ['id'],
+      attributes: ['id', 'last_synced_at'],
     });
 
     const insights = await Insight.findAll({
@@ -405,7 +412,128 @@ export class DashboardController {
         revenue: parseFloat(insight.dataValues.conversion_value),
         impressions: parseInt(insight.dataValues.impressions, 10),
       })),
+      meta: {
+        source_level: 'ad',
+        window_days: daysNum,
+        period: `${this.formatDate(startDate)}..${this.formatDate(new Date())}`,
+        last_synced_at: this.getLatestSyncAt(adAccounts),
+      },
     });
+  }
+
+  private async getAccountLevelTotals(
+    adAccountIds: string[],
+    dateFilter: Record<string, unknown>
+  ): Promise<ReturnType<typeof calculatePerformanceMetrics>> {
+    const totalsRow = (await Insight.findOne({
+      where: {
+        ad_account_id: { [Op.in]: adAccountIds },
+        campaign_id: null,
+        ad_set_id: null,
+        ad_id: null,
+        date: dateFilter,
+      },
+      attributes: [
+        [Insight.sequelize!.fn('COALESCE', Insight.sequelize!.fn('SUM', Insight.sequelize!.col('spend')), 0), 'spend'],
+        [Insight.sequelize!.fn('COALESCE', Insight.sequelize!.fn('SUM', Insight.sequelize!.col('impressions')), 0), 'impressions'],
+        [Insight.sequelize!.fn('COALESCE', Insight.sequelize!.fn('SUM', Insight.sequelize!.col('clicks')), 0), 'clicks'],
+        [Insight.sequelize!.fn('COALESCE', Insight.sequelize!.fn('SUM', Insight.sequelize!.col('conversions')), 0), 'conversions'],
+        [Insight.sequelize!.fn('COALESCE', Insight.sequelize!.fn('SUM', Insight.sequelize!.col('conversion_value')), 0), 'conversion_value'],
+        [Insight.sequelize!.fn('COALESCE', Insight.sequelize!.fn('SUM', Insight.sequelize!.col('reach')), 0), 'reach'],
+      ],
+      raw: true,
+    })) as Record<string, string> | null;
+
+    return calculatePerformanceMetrics({
+      spend: Number(totalsRow?.spend || 0),
+      impressions: Number(totalsRow?.impressions || 0),
+      clicks: Number(totalsRow?.clicks || 0),
+      conversions: Number(totalsRow?.conversions || 0),
+      conversionValue: Number(totalsRow?.conversion_value || 0),
+      reach: Number(totalsRow?.reach || 0),
+    });
+  }
+
+  private emptyPerformance(): ReturnType<typeof calculatePerformanceMetrics> {
+    return calculatePerformanceMetrics({
+      spend: 0,
+      impressions: 0,
+      clicks: 0,
+      conversions: 0,
+      conversionValue: 0,
+      reach: 0,
+    });
+  }
+
+  private toOverviewPayload(metrics: ReturnType<typeof calculatePerformanceMetrics>) {
+    return {
+      total_spend: metrics.spend,
+      total_impressions: metrics.impressions,
+      total_clicks: metrics.clicks,
+      total_conversions: metrics.conversions,
+      total_revenue: metrics.conversionValue,
+      ctr: metrics.ctr * 100,
+      cpc: metrics.cpc,
+      cpa: metrics.cpa,
+      roas: metrics.roas,
+    };
+  }
+
+  private toComparisonPayload(
+    current: ReturnType<DashboardController['toOverviewPayload']>,
+    previous: ReturnType<DashboardController['toOverviewPayload']>
+  ) {
+    return {
+      spend_change_pct: this.calculateChangePct(current.total_spend, previous.total_spend),
+      impressions_change_pct: this.calculateChangePct(
+        current.total_impressions,
+        previous.total_impressions
+      ),
+      clicks_change_pct: this.calculateChangePct(current.total_clicks, previous.total_clicks),
+      conversions_change_pct: this.calculateChangePct(
+        current.total_conversions,
+        previous.total_conversions
+      ),
+      revenue_change_pct: this.calculateChangePct(current.total_revenue, previous.total_revenue),
+      ctr_change_pct: this.calculateChangePct(current.ctr, previous.ctr),
+      cpc_change_pct: this.calculateChangePct(current.cpc, previous.cpc),
+      cpa_change_pct: this.calculateChangePct(current.cpa, previous.cpa),
+      roas_change_pct: this.calculateChangePct(current.roas, previous.roas),
+    };
+  }
+
+  private calculateChangePct(current: number, previous: number): number {
+    if (previous === 0) {
+      if (current === 0) {
+        return 0;
+      }
+      return 100;
+    }
+
+    return ((current - previous) / Math.abs(previous)) * 100;
+  }
+
+  private getLatestSyncAt(
+    adAccounts: Array<Pick<AdAccount, 'last_synced_at'>>
+  ): string | null {
+    let latest: Date | null = null;
+
+    for (const account of adAccounts) {
+      const currentDate = account.last_synced_at ? new Date(account.last_synced_at) : null;
+      if (!currentDate) {
+        continue;
+      }
+
+      if (!latest || currentDate > latest) {
+        latest = currentDate;
+      }
+    }
+
+    return latest ? latest.toISOString() : null;
+  }
+
+  private formatDate(date: Date): string {
+    return date.toISOString().split('T')[0];
   }
 }
 
