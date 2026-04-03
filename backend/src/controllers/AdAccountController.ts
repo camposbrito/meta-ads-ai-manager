@@ -92,7 +92,7 @@ export class AdAccountController {
         { transaction }
       );
 
-      await SyncJob.create(
+      const syncJob = await SyncJob.create(
         {
           id: uuidv4(),
           ad_account_id: adAccount.id,
@@ -104,6 +104,12 @@ export class AdAccountController {
       );
 
       await transaction.commit();
+
+      SyncService.syncAdAccount(adAccount.id, 'full_sync', { existingJobId: syncJob.id }).catch(
+        (error) => {
+          console.error(`Initial sync failed for ad account ${adAccount.id}:`, error);
+        }
+      );
 
       res.status(201).json({
         account: {
@@ -164,7 +170,9 @@ export class AdAccountController {
       records_synced: 0,
     });
 
-    SyncService.syncAdAccount(adAccount.id, 'incremental_sync').catch((error) => {
+    SyncService.syncAdAccount(adAccount.id, 'incremental_sync', {
+      existingJobId: syncJob.id,
+    }).catch((error) => {
       console.error(`Background sync failed for ad account ${adAccount.id}:`, error);
     });
 

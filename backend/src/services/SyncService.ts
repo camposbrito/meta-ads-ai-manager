@@ -3,21 +3,49 @@ import MetaApiService, { MetaAd, MetaAdSet, MetaCampaign, MetaInsight } from './
 import { Ad, AdAccount, AdSet, Campaign, Insight, Organization, SyncJob } from '../models';
 import { AppError } from '../middleware/errorHandler';
 
+interface SyncExecutionOptions {
+  existingJobId?: string;
+}
+
 export class SyncService {
   async syncAdAccount(
     adAccountId: string,
-    jobType: 'full_sync' | 'incremental_sync' | 'insights_sync' = 'full_sync'
+    jobType: 'full_sync' | 'incremental_sync' | 'insights_sync' = 'full_sync',
+    options: SyncExecutionOptions = {}
   ): Promise<void> {
-    const syncJob = await SyncJob.create({
-      id: uuidv4(),
-      ad_account_id: adAccountId,
-      job_type: jobType,
-      status: 'pending',
-      records_synced: 0,
-    });
+    let syncJob: SyncJob | null = null;
+
+    if (options.existingJobId) {
+      syncJob = await SyncJob.findOne({
+        where: {
+          id: options.existingJobId,
+          ad_account_id: adAccountId,
+        },
+      });
+
+      if (!syncJob) {
+        throw new AppError('Sync job not found', 404);
+      }
+    }
+
+    if (!syncJob) {
+      syncJob = await SyncJob.create({
+        id: uuidv4(),
+        ad_account_id: adAccountId,
+        job_type: jobType,
+        status: 'pending',
+        records_synced: 0,
+      });
+    }
 
     try {
-      await syncJob.update({ status: 'running', started_at: new Date() });
+      await syncJob.update({
+        job_type: jobType,
+        status: 'running',
+        started_at: new Date(),
+        completed_at: null,
+        error_message: null,
+      });
 
       const adAccount = await AdAccount.findByPk(adAccountId, {
         include: [{ model: Organization, as: 'organization' }],
